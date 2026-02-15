@@ -88,14 +88,16 @@ west sdk install \
 
 cecho "OK! Next, let's get micropython."
 if [ -f "$D"/micropython/README.md ]; then
-    cecho "...looks like you already have it. Result."
+  cecho "...looks like you already have it. Result."
 else
-    git clone --depth=1 git@github.com:micropython/micropython.git "$D"/micropython/
+  # get our fork, until our changes are merged upstream, in our branch
+  git clone --depth=1 --single-branch --branch=digimini-zephyr \
+    git@github.com:stuartlangridge/micropython.git "$D"/micropython/
 fi
 
 cecho And now we build micropython itself
 BOARD=nrf52840dongle
-west build -p always -b $BOARD "$D"/micropython/ports/zephyr
+west build -p always -b $BOARD "$D"/micropython/ports/zephyr || exit 1
 
 # we can't use "west flash" here, according to the nRF52840 Dongle page at
 # https://docs.zephyrproject.org/latest/boards/nordic/nrf52840dongle/doc/index.html
@@ -107,9 +109,10 @@ nrfutil nrf5sdk-tools pkg generate \
          --sd-req=0x00 \
          --application build/zephyr/zephyr.hex \
          --application-version 1 \
-         "$D"/micropython.zip
+         "$D"/micropython-built.zip || exit 1
 
-nrfutil nrf5sdk-tools dfu usb-serial -pkg "$D"/micropython.zip -p /dev/ttyACM0
+nrfutil nrf5sdk-tools dfu usb-serial \
+  -pkg "$D"/micropython-built.zip -p /dev/ttyACM0
 
 cecho "Connect to its Python repl with 'picocom /dev/ttyACM0' \
 Exit with Ctrl-A Ctrl-X \
