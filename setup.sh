@@ -22,6 +22,14 @@ if [ "$VIRTUAL_ENV" != "" ]; then
   exit 2
 fi
 
+cecho "First we check if you have an nRF52840 dongle (P10059) both plugged in and at the bootloader!"
+lsusb | grep -q "1915:521f Nordic Semiconductor ASA Open DFU Bootloader"
+if [ $? == 0 ]; then
+    cecho "...you do. Let's begin!"
+else
+    recho "You either don't have the P10059 dongle plugged in, or you do, and it's not at the bootloader. If it's plugged in, then it should have a pulsing red LED. If it doesn't, then press the reset button (tiny, on the bottom side of the metal box above the N logo)."
+    exit 1
+fi
 
 cat <<"EOF"
 Welcome to Stuart's environment setup for building MicroPython for nRF
@@ -52,6 +60,10 @@ else
 fi
 source "$D"/mpvenv/bin/activate
 
+echo Checking for nrfutil which is needed for build and flashing
+which nrfutil > /dev/null || pip3 install nrfutil
+
+
 echo "We need the Zephyr builder, west (West! Jim West! desperado!) to do stuff"
 pip install -q west
 
@@ -74,3 +86,35 @@ west sdk install \
   --install-base "$D"/zephyr-sdk-install/extract \
   --install-dir zephyr-sdk-latest
 
+cecho "OK! Next, let's get micropython."
+if [ -f "$D"/micropython/README.md ]; then
+    cecho "...looks like you already have it. Result."
+else
+    git clone --depth=1 git@github.com:micropython/micropython.git "$D"/micropython/
+fi
+
+cecho And now we build micropython itself
+BOARD=nrf52840dongle
+west build -p always -b $BOARD "$D"/micropython/ports/zephyr
+
+# we can't use "west flash" here, according to the nRF52840 Dongle page at
+# https://docs.zephyrproject.org/latest/boards/nordic/nrf52840dongle/doc/index.html
+# so we package and flash with nrfutil
+# zephyrproject/zephyr/build/zephyr/zephyr.hex is the built file
+
+nrfutil nrf5sdk-tools pkg generate \
+         --hw-version 52 \
+         --sd-req=0x00 \
+         --application build/zephyr/zephyr.hex \
+         --application-version 1 \
+         "$D"/micropython.zip
+
+nrfutil nrf5sdk-tools dfu usb-serial -pkg "$D"/micropython.zip -p /dev/ttyACM0
+
+cecho "Connect to its Python repl with 'picocom /dev/ttyACM0' \
+Exit with Ctrl-A Ctrl-X \
+\
+Alternatively use mpremote (apt install micropython-mpremote) \
+$ mpremote # gives you a python shell
+$ mpremote run something.py # runs something.py on the device
+If it claims there's no device, it might need sudo."
