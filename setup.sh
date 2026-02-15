@@ -116,6 +116,11 @@ else
     git@github.com:stuartlangridge/micropython.git "$D"/micropython/
 fi
 
+echo We need micropython-lib in the build tree as well
+pushd "$D"/micropython/lib/micropython-lib
+git submodule update --init --recursive
+popd
+
 cecho And now we build micropython itself
 BOARD=nrf52840dongle
 west build -p always -b $BOARD "$D"/micropython/ports/zephyr || exit 1
