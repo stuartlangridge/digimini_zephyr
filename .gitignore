@@ -2,3 +2,5 @@ mpvenv
 zephyrproject/
 micropython
 micropython.zip
+micropython-lib/
+micropython-built.zip

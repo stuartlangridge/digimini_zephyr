@@ -52,6 +52,17 @@ sudo apt -qqq install --no-install-recommends git cmake ninja-build gperf \
   ccache dfu-util device-tree-compiler wget python3-dev python3-venv python3-tk \
   xz-utils file make gcc gcc-multilib g++-multilib libsdl2-dev libmagic1
 
+cecho "Getting micropython-lib for extra stdlib stuff such as aioble"
+# we can't use mpremote mip install because we don't have a filesystem setup
+if [ -f "$D"/micropython-lib/README.md ]; then
+  echo "Looks like you already have micropython-lib; good. Let's update it."
+  pushd "$D"/micropython-lib
+  git pull
+  popd
+else
+  git clone git@github.com:micropython/micropython-lib.git "$D"/micropython-lib/
+fi
+
 if [ -f "$D"/mpvenv/pyvenv.cfg ]; then
   echo "Looks like you already have a virtualenv; good."
 else
@@ -63,7 +74,6 @@ source "$D"/mpvenv/bin/activate
 echo Checking for nrfutil which is needed for build and flashing
 which nrfutil > /dev/null || pip3 install nrfutil
 
-
 echo "We need the Zephyr builder, west (West! Jim West! desperado!) to do stuff"
 pip install -q west
 
@@ -74,8 +84,19 @@ else
   west init "$D"/zephyrproject
 fi
 cd "$D"/zephyrproject
+
 # this is annoyingly chatty. Don't wanna hide it, so we live with it
 west -qqq update || exit 1
+
+cecho "We need to work with a known version of Zephyr because that's \
+what MicroPython supports (see ports/zephyr/README)."
+# https://github.com/zephyrproject-rtos/zephyr/discussions/53847
+pushd "$D"/zephyrproject/zephyr
+git checkout v4.2.1
+popd
+# and we need to update again
+west -qqq update || exit 1
+
 west zephyr-export
 west packages pip --install -- --quiet
 
@@ -120,4 +141,8 @@ Exit with Ctrl-A Ctrl-X \
 Alternatively use mpremote (apt install micropython-mpremote) \
 $ mpremote # gives you a python shell
 $ mpremote run something.py # runs something.py on the device
-If it claims there's no device, it might need sudo."
+If it claims there's no device, it might need sudo.
+
+To deploy and run OUR program (rather than the micropython firmware
+on which it depends) do 'bash deploy.sh'.
+"
