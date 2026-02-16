@@ -15,238 +15,123 @@
     #total { font-weight: bold; font-size: 1.3rem; color: #0066cc; }
     progress { width: 100%; height: 1.2rem; margin-top: 0.5em; accent-color: #0066cc; }
     .section { margin: 1.5em 0; }
-    #progressContainer { display: none; }
   </style>
 </head>
 <body>
 <h1>digimini_zephyr sender</h1>
-<div class="section">
-  <button id="connectBtn">Connect to digi</button>
+<nav>
+  <button id="connectBtn">Connect to digimini</button>
   <button id="disconnectBtn" disabled>Disconnect</button>
-</div>
-<div id="status">Status: Not connected</div>
-<div class="section">
-  <label for="message">Text to send:</label><br>
-  <textarea id="message" placeholder="Type or paste here..."></textarea><br>
-  <button id="fillBtn">Fill with 5k random chars</button>
+</nav>
+<p id="status">Status: Not connected</p>
+<main>
+  <label for="dataBox">Data to send:</label><br>
+  <textarea id="dataBox" placeholder="Type or paste here..."></textarea><br>
+  <button id="fill5kBtn">Fill with 5k random chars</button>
+  <button id="fill50Btn">Fill with 50 random chars</button>
   <button id="sendBtn" disabled>Send text</button>
-</div>
-<div class="section">
-  <label>Total bytes received on device:</label><br>
-  <output id="total">0</output>
-</div>
-<div id="progressContainer" class="section">
+</main>
+<aside id="progressContainer" hidden>
   <label>Sending progress:</label><br>
   <progress id="progressBar" value="0" max="100"></progress>
   <span id="progressText">0%</span>
-</div>
+</aside>
+<script src="btle.js"></script>
 <script>
-// -------------------------------------------------------------
-const SERVICE_UUID = "D191D191-F070-51DE-C0DE-B1EA550C1A7E".toLowerCase()
-const US2SERVER_UUID = "D191D191-F070-FEED-DA7A-B1EA550C1A7E".toLowerCase()
-const SERVER2US_UUID = "D191D191-F070-ACCE-55E5-B1EA550C1A7E".toLowerCase()
-
-const CHUNK_SIZE = 20;
-const INTER_WRITE_DELAY_MS = 50;
-const CHUNK_TIMEOUT_MS = 12000;
-
-let device = null;
-let server = null;
-let service = null;
-let us2serverChar = null;
-let server2usChar = null;
-let pendingChunks = [];
-let currentChunkIndex = 0;
-let lastKnownTotal = 0;
-let currentExpectedTotal = 0;
-let ackTimer = null;
-let isSending = false;
-let isDisconnecting = false;
-
-// Timing & benchmarking
-let sendStartTime = null;
-let totalSendTimeMs = null;
-let benchmarkResult = "";
-
-// DOM
-const connectBtn      = document.getElementById("connectBtn");
-const disconnectBtn   = document.getElementById("disconnectBtn");
-const sendBtn         = document.getElementById("sendBtn");
-const fillBtn         = document.getElementById("fillBtn");
-const textarea        = document.getElementById("message");
-const statusDiv       = document.getElementById("status");
-const totalOutput     = document.getElementById("total");
+// definitions
+const connectBtn = document.getElementById("connectBtn");
+const disconnectBtn = document.getElementById("disconnectBtn");
+const status = document.getElementById("status");
+const dataBox = document.getElementById("dataBox");
+const fill5kBtn = document.getElementById("fill5kBtn");
+const fill50Btn = document.getElementById("fill50Btn");
+const sendBtn = document.getElementById("sendBtn");
 const progressContainer = document.getElementById("progressContainer");
-const progressBar     = document.getElementById("progressBar");
-const progressText    = document.getElementById("progressText");
+const progressBar = document.getElementById("progressBar");
+const progressText = document.getElementById("progressText");
 
-// -------------------------------------------------------------
-function setStatus(msg, isError = false) {
-  statusDiv.textContent = msg;
-  statusDiv.style.background = isError ? "#ffebee" : "#f0f4f8";
-}
-
-function updateProgress() {
-  if (!isSending || pendingChunks.length === 0) {
-    progressContainer.style.display = "none";
-    progressBar.value = 0;
-    progressText.textContent = "0%";
-    return;
+const btleManager = new BTLEManager({
+  uuids: {
+    service: "D191D191-F070-51DE-C0DE-B1EA550C1A7E".toLowerCase(),
+    us2server_cmd: "D191D191-F070-FEED-1DEA-B1EA550C1A7E".toLowerCase(),
+    us2server_data: "D191D191-F070-FEED-DA7A-B1EA550C1A7E".toLowerCase(),
+    server2us: "D191D191-F070-ACCE-55E5-B1EA550C1A7E".toLowerCase(),
   }
-  const percent = Math.round((currentChunkIndex / pendingChunks.length) * 100);
-  progressBar.value = percent;
-  progressText.textContent = `${percent}%`;
+});
 
-  if (sendStartTime) {
-    const elapsedMs = Date.now() - sendStartTime;
-    const elapsedSec = (elapsedMs / 1000).toFixed(1);
-    progressText.textContent += ` — ${elapsedSec}s elapsed`;
-  }
-
-  progressContainer.style.display = "block";
+// handlers
+function setStatus(text) {
+  status.textContent = text;
 }
-
-function showBenchmark() {
-  const textLength = pendingChunks.reduce((sum, c) => sum + c.length, 0);
-  const kbSent = textLength / 1024;
-  const seconds = totalSendTimeMs / 1000;
-  const secPerKb = kbSent > 0 ? (seconds / kbSent).toFixed(3) : "—";
-  const kbPerSec = seconds > 0 ? (kbSent / seconds).toFixed(2) : "—";
-
-  benchmarkResult = `Completed in ${seconds.toFixed(1)} s | ${kbSent.toFixed(2)} kB | ${secPerKb} s/kB | ${kbPerSec} kB/s`;
-  setStatus(benchmarkResult);
-  console.log(benchmarkResult);
-}
-
-async function getCurrentTotal() {
-  try {
-    const val = await server2usChar.readValue();
-    const decoder = new TextDecoder();
-    const str = decoder.decode(val.buffer);
-    return str;
-  } catch (e) {
-    console.warn("Failed to read current total:", e);
-    return parseInt(totalOutput.textContent) || 0;
-  }
-}
-
-// -------------------------------------------------------------
-async function connect() {
-  if (isDisconnecting) return;
-  try {
-    setStatus("Requesting device...");
-    device = await navigator.bluetooth.requestDevice({
-      acceptAllDevices: true,
-      optionalServices: [SERVICE_UUID]
-    });
-    device.addEventListener('gattserverdisconnected', onUnexpectedDisconnect);
-    setStatus("Connecting...");
-    server = await device.gatt.connect();
-    setStatus("Getting digimini service...");
-    service = await server.getPrimaryService(SERVICE_UUID);
-    us2serverChar = await service.getCharacteristic(US2SERVER_UUID);
-    server2usChar = await service.getCharacteristic(SERVER2US_UUID);
-
-    setStatus("Listening for server updates...");
-    await server2usChar.startNotifications();
-    server2usChar.addEventListener("characteristicvaluechanged", onServerSends);
-
-    // Delay to let subscription stabilize
-    await new Promise(r => setTimeout(r, 800));
-
-    connectBtn.disabled = true;
-    disconnectBtn.disabled = false;
-    sendBtn.disabled = false;
-    fillBtn.disabled = false;
-    textarea.focus();
-    setStatus("Connected");
-  } catch (err) {
-    setStatus(`Connection failed: ${err.message || err}`, true);
-    console.error("Connect error:", err);
-    disconnect();
-  }
-}
-
-function onUnexpectedDisconnect(event) {
-  if (isDisconnecting) return;
-  setStatus("Device disconnected unexpectedly", true);
-  disconnect();
-}
-
-// -------------------------------------------------------------
-function onServerSends(event) {
-  const value = event.target.value;
-  const decoder = new TextDecoder();
-  const str = decoder.decode(value.buffer);
-  console.log("got value from server!", str);
-}
-
-// -------------------------------------------------------------
-async function sendText() {
-  let text = textarea.value.trim();
-  if (!text) return;
-
-  text = text.substr(0, 20);
-  console.log(`Sending text "${text}"`);
-  const bytes = new TextEncoder().encode(text);
-
-  try {
-    await us2serverChar.writeValue(bytes);
-    console.log(`Sent chunk (${bytes.length} bytes)`);
-  } catch (err) {
-    setStatus(`Send failed: ${err.message || err}`, true);
-    console.error("Send error:", err);
-  }
-}
-
-// -------------------------------------------------------------
-function fillWithRandomText() {
-  const length = 5000;
+async function connectBtnClick(e) { btleManager.connect(); }
+async function disconnectBtnClick(e) { btleManager.disconnect(); }
+async function fill(length) {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,;:!?()[]{} -_/\\+=*\"'";
   let result = "";
   for (let i = 0; i < length; i++) {
     result += chars.charAt(Math.floor(Math.random() * chars.length));
   }
-  textarea.value = result;
+  dataBox.value = result;
   setStatus("Textarea filled with 5000 random characters");
+  checkSendBtn();
 }
+async function sendBtnClick(e) {
+  const tosend = dataBox.value.trim();
+  if (tosend.length > 0) {
+    progressBar.value = 0;
+    progressContainer.hidden = false;
+    const res = await btleManager.send(tosend);
+    progressContainer.hidden = true;
 
-// -------------------------------------------------------------
-function disconnect() {
-  if (isDisconnecting) return;
-  isDisconnecting = true;
+    const kbSent = res.bytes_transferred / 1024;
+    const seconds = res.elapsed_ms / 1000;
+    const secPerKb = kbSent > 0 ? (seconds / kbSent).toFixed(3) : "—";
+    const kbPerSec = seconds > 0 ? (kbSent / seconds).toFixed(2) : "—";
 
-  if (server2usChar) {
-    server2usChar.removeEventListener("characteristicvaluechanged", onServerSends);
+    const benchmarkResult = `Completed in ${seconds.toFixed(1)} s | ${kbSent.toFixed(2)} kB | ${secPerKb} s/kB | ${kbPerSec} kB/s`;
+    setStatus(benchmarkResult);
   }
-  if (server) {
-    try { server.disconnect(); } catch (e) {}
-  }
-  if (device && typeof device.forget === "function") {
-    device.forget().catch(e => console.warn("Forget failed:", e));
-  }
+}
+async function checkSendBtn() {
+    if (dataBox.value.trim().length > 0 && btleManager.connected) {
+      sendBtn.disabled = false;
+    } else {
+      sendBtn.disabled = true;
+    }
 
-  device = server = service = us2serverChar = server2usChar = null;
+}
+async function dataEntered(e) {
+  checkSendBtn();
+}
+async function connected(e) {
+  connectBtn.disabled = true;
+  disconnectBtn.disabled = false;
+  checkSendBtn();
+  dataBox.focus();
+}
+async function disconnected(e) {
   connectBtn.disabled = false;
   disconnectBtn.disabled = true;
-  sendBtn.disabled = true;
-  fillBtn.disabled = true;
-  setStatus("Disconnected");
-  isDisconnecting = false;
+  progressContainer.hidden = true; // shouldn't be needed, but...
+  checkSendBtn();
 }
-
-// -------------------------------------------------------------
-connectBtn.addEventListener("click", connect);
-disconnectBtn.addEventListener("click", disconnect);
-sendBtn.addEventListener("click", sendText);
-fillBtn.addEventListener("click", fillWithRandomText);
-
-textarea.addEventListener("keydown", (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    sendText();
-  }
-});
+async function updateProgress(e) {
+  console.log("update progress", e)
+  const percent = Math.round(e.detail.progress * 100);
+  progressBar.value = percent;
+  progressText.textContent = `${percent}% (${e.detail.elapsed_ms / 1000}s)`;
+}
+// handler hookup
+document.addEventListener("btle-connect", connected);
+document.addEventListener("btle-disconnect", disconnected);
+document.addEventListener("btle-status", e => { setStatus(e.detail.text); });
+document.addEventListener("btle-progress", updateProgress);
+connectBtn.addEventListener("click", connectBtnClick);
+disconnectBtn.addEventListener("click", disconnectBtnClick);
+fill5kBtn.addEventListener("click", () => { fill(5000); });
+fill50Btn.addEventListener("click", () => { fill(50); });
+sendBtn.addEventListener("click", sendBtnClick);
+dataBox.addEventListener("input", dataEntered);
 </script>
 </body>
 </html>
