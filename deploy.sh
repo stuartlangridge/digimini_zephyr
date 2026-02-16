@@ -42,8 +42,11 @@ if [ ! -f "$D"/app/server/mplib_deps.txt ]; then
 fi
 
 cecho "Installing micropython-lib dependencies"
+# remove #comments from line
 egrep -v '^#|^\s*$' "$D"/app/server/mplib_deps.txt | while read -r dep; do
-  if mpremote fs ls /flash/lib/$dep > /dev/null; then
+  # split line by / and take last
+  dirname=${dep##*/}
+  if mpremote fs ls /flash/lib/$dirname > /dev/null; then
     echo micropython-lib $dep is already installed
   else
     echo Installing micropython-lib dependency $dep

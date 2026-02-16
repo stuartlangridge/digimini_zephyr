@@ -1,3 +1,4 @@
 # List of micropython-lib apps that we depend on which will be installed
 
 aioble
+github:peterhinch/micropython-async/v3/primitives

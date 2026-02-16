@@ -12,6 +12,13 @@ import bluetooth
 import random
 import struct
 
+from primitives.broker import broker
+
+# Custom UUIDs for our service
+SERVICE_UUID = bluetooth.UUID("D191D191-F070-51DE-C0DE-B1EA550C1A7E")
+CLIENT2US_UUID = bluetooth.UUID("D191D191-F070-FEED-DA7A-B1EA550C1A7E")
+US2CLIENT_UUID = bluetooth.UUID("D191D191-F070-ACCE-55E5-B1EA550C1A7E")
+
 # org.bluetooth.service.environmental_sensing
 _ENV_SENSE_UUID = bluetooth.UUID(0x181A)
 # org.bluetooth.characteristic.temperature
@@ -24,48 +31,68 @@ _ADV_INTERVAL_US = 250_000
 
 
 # Register GATT server.
-temp_service = aioble.Service(_ENV_SENSE_UUID)
-temp_characteristic = aioble.Characteristic(
-    temp_service, _ENV_SENSE_TEMP_UUID, read=True, notify=True
+service = aioble.Service(SERVICE_UUID)
+client2us_characteristic = aioble.Characteristic(
+    service, CLIENT2US_UUID, write=True, capture=True
 )
-aioble.register_services(temp_service)
+us2client_characteristic = aioble.Characteristic(
+    service, US2CLIENT_UUID, read=True, notify=True
+)
+aioble.register_services(service)
 
 
-# Helper to encode the temperature characteristic encoding (sint16, hundredths of a degree).
-def _encode_temperature(temp_deg_c):
-    return struct.pack("<h", int(temp_deg_c * 100))
-
-
-# This would be periodically polling a hardware sensor.
-async def sensor_task():
-    t = 24.5
+# listen for transmissions of data from them to us
+async def client2us_task():
+    print(client2us_characteristic, dir(client2us_characteristic))
     while True:
-        temp_characteristic.write(_encode_temperature(t), send_update=True)
-        t += random.uniform(-0.5, 0.5)
+        try:
+            res = await client2us_characteristic.written()
+            if res:
+                print(f"Received {res}")
+        except asyncio.CancelledError:
+            # Catch the CancelledError
+            print("Wait4Write task cancelled")
+        except Exception as e:
+            print("Error in Wait4write_task:", e)
+        finally:
+            # Ensure the loop continues to the next iteration
+            await asyncio.sleep_ms(500)
+            print("loop")
+
+async def us2client_handle_connection_message(channel, value):
+    print("u2c_c_m", value)
+
+# send data back to client
+async def us2client_task():
+    broker.subscribe("connection", us2client_handle_connection_message)
+    while True:
+        us2client_characteristic.write("hello", send_update=True)
         await asyncio.sleep_ms(1000)
 
 
 # Serially wait for connections. Don't advertise while a central is
 # connected.
-async def peripheral_task():
+async def connection_task():
     while True:
         async with await aioble.advertise(
             _ADV_INTERVAL_US,
-            name="mpy-temp",
-            services=[_ENV_SENSE_UUID],
-            appearance=_ADV_APPEARANCE_GENERIC_THERMOMETER,
+            name="digimini",
+            services=[SERVICE_UUID],
         ) as connection:
             print("Connection from", connection.device)
+            broker.publish("connection", "connected")
             await connection.disconnected(timeout_ms=None)
             print("Disconnected from", connection.device)
+            broker.publish("connection", "disconnected")
 
 
 
-# Run both tasks.
+# Run all tasks
 async def main():
-    t1 = asyncio.create_task(sensor_task())
-    t2 = asyncio.create_task(peripheral_task())
-    await asyncio.gather(t1, t2)
+    t_c2u = asyncio.create_task(client2us_task())
+    t_u2c = asyncio.create_task(us2client_task())
+    t_srv = asyncio.create_task(connection_task())
+    await asyncio.gather(t_c2u, t_u2c, t_srv)
 
 print("App startup")
 asyncio.run(main())
