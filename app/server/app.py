@@ -42,13 +42,16 @@ aioble.register_services(service)
 
 
 # listen for transmissions of data from them to us
-async def client2us_task():
-    print(client2us_characteristic, dir(client2us_characteristic))
+# put those data on the incoming_message_client2us queue
+# to be processed by the incoming_message_handler
+async def client2us_listener():
     while True:
         try:
             res = await client2us_characteristic.written()
             if res:
-                print(f"Received {res}")
+                connection, data = res
+                print("Received", data, "push to incoming_message_client2us queue")
+                broker.publish("incoming_message_client2us", data)
         except asyncio.CancelledError:
             # Catch the CancelledError
             print("Wait4Write task cancelled")
@@ -57,18 +60,15 @@ async def client2us_task():
         finally:
             # Ensure the loop continues to the next iteration
             await asyncio.sleep_ms(500)
-            print("loop")
 
-async def us2client_handle_connection_message(channel, value):
-    print("u2c_c_m", value)
+async def incoming_message_handler(channel, data):
+    print("Incoming message", data)
+    broker.publish("request_send_us2client", f"len:{len(data)}")
 
-# send data back to client
-async def us2client_task():
-    broker.subscribe("connection", us2client_handle_connection_message)
-    while True:
-        us2client_characteristic.write("hello", send_update=True)
-        await asyncio.sleep_ms(1000)
-
+# listens to request_send_us2client queue and sends things on it
+async def outgoing_message_sender(channel, data):
+    print("send to client", data)
+    us2client_characteristic.write(data, send_update=True)
 
 # Serially wait for connections. Don't advertise while a central is
 # connected.
@@ -86,13 +86,14 @@ async def connection_task():
             broker.publish("connection", "disconnected")
 
 
-
-# Run all tasks
 async def main():
-    t_c2u = asyncio.create_task(client2us_task())
-    t_u2c = asyncio.create_task(us2client_task())
     t_srv = asyncio.create_task(connection_task())
-    await asyncio.gather(t_c2u, t_u2c, t_srv)
+    t_c2u = asyncio.create_task(client2us_listener())
+    #t_u2c = asyncio.create_task(us2client_sender())
+
+    broker.subscribe("incoming_message_client2us", incoming_message_handler)
+    broker.subscribe("request_send_us2client", outgoing_message_sender)
+    await asyncio.gather(t_c2u, t_srv)
 
 print("App startup")
 asyncio.run(main())
