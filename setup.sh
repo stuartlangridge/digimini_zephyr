@@ -146,7 +146,7 @@ Exit with Ctrl-A Ctrl-X \
 Alternatively use mpremote (apt install micropython-mpremote) \
 $ mpremote # gives you a python shell
 $ mpremote run something.py # runs something.py on the device
-If it claims there's no device, it might need sudo.
+If it claims there's no device, it might need you to be in the dialout group.
 
 To deploy and run OUR program (rather than the micropython firmware
 on which it depends) do 'bash deploy.sh'.
