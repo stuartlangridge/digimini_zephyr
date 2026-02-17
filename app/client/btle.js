@@ -152,11 +152,16 @@ class BTLEBlockSender {
         await this.send_dmcmd(`send_data:${this.blocks.length}`);
         await this.waitForServerReply('dmres:goahead');
         console.log("received server goahead");
-        
-        const INITIAL_BURST_SIZE = 20;     // Start tiny! Increase only after success
+
+        // note: these values have been arrived at by experimentation
+        // to balance speed of throughput with not overrunning the buffer
+        // sizes on the device.
+        // they go in concert with buffer size configs in the board .conf
+        // file for the device in the zephyr build
+        const INITIAL_BURST_SIZE = 20;
         const MAX_BURST_SIZE = 120;
-        const BASE_BURST_SIZE = 10;
-        const INTER_WRITE_DELAY_MS = 0;
+        const BASE_BURST_SIZE = 4;
+        const INTER_WRITE_DELAY_MS = 5;
         const BURST_TIMEOUT_MS = 15000;
 
         let sentBlocks = 0;
@@ -165,7 +170,7 @@ class BTLEBlockSender {
         let localLen = 0;
 
         while (sentBlocks < this.blocks.length) {
-            let burstSize = Math.min(BASE_BURST_SIZE + Math.floor(sentBlocks / 20), 40); // ramp to 40 blocks = 8 kB bursts
+            let burstSize = Math.min(BASE_BURST_SIZE + Math.floor(sentBlocks / 30), 25);
             const thisBurst = Math.min(burstSize, this.blocks.length - sentBlocks);
 
             console.log(`Burst attempt: blocks ${sentBlocks + 1} → ${sentBlocks + thisBurst} (size ${thisBurst})`);
@@ -181,7 +186,7 @@ class BTLEBlockSender {
 
             sentBlocks += thisBurst;
             const previousProgress = lastKnownDeviceBlocks;
-            await this.send_dmcmd("request_cs");
+            //await this.send_dmcmd("request_cs");
             try {
                 lastKnownDeviceBlocks = await this.waitForAnyChecksumProgress(
                     previousProgress,
@@ -191,8 +196,7 @@ class BTLEBlockSender {
             } catch (e) {
                 console.error("Burst failed:", e);
                 if (lastKnownDeviceBlocks > previousProgress) {  // some progress
-                    console.log("Partial progress; continuing cautiously");
-                    // proceed to next burst without throw
+                    console.log(`Partial progress (+${lastKnownDeviceBlocks - previousProgress}); continuing`);
                 } else {
                     console.error("No progress at all in this burst → likely full stall");
                     throw e;  // full stall → abort
@@ -229,7 +233,7 @@ class BTLEBlockSender {
                     console.log(`Device advanced to ${blocks} blocks (local sent: ${currentSentBlocks})`);
                 }
 
-                if (blocks >= currentSentBlocks - 60) {  // ← use the passed param
+                if (blocks >= currentSentBlocks - 100) {
                     return highestSeen;
                 }
             }
