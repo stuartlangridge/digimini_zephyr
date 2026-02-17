@@ -35,6 +35,7 @@ us2client_characteristic = aioble.Characteristic(
     service, US2CLIENT_UUID, read=True, notify=True
 )
 aioble.register_services(service)
+aioble.core.ble.gatts_set_buffer(client2us_data_characteristic._value_handle, 512)
 
 class ChecksumAlreadyStartedError(Exception): pass
 class Checksum:
@@ -77,6 +78,21 @@ class Checksum:
     def get(self):
         return f"{self.sum},{self.len},{self.block_count}"
 
+last_sent_cs = None
+
+async def periodic_checksum_sender():
+    global last_sent_cs
+    while True:
+        await asyncio.sleep_ms(5000)
+        if checksum.started():
+            current = checksum.get()
+            if current != last_sent_cs:
+                cs_str = f"dmcs:{current}"
+                broker.publish("request_send_us2client", cs_str)
+                print("Periodic CS (changed):", cs_str)
+                last_sent_cs = current
+            # else: skip sending duplicate
+
 # listen for transmissions of data from them to us
 # put those data on the incoming_data queue
 # to be processed by the incoming_data_handler
@@ -86,7 +102,7 @@ async def client2us_data_listener():
             res = await client2us_data_characteristic.written()
             if res:
                 connection, data = res
-                print("Received data:", data, time.ticks_ms())
+                #print("Received data:", data, time.ticks_ms())
                 broker.publish("incoming_data_handler", data)
         except asyncio.CancelledError:
             # Catch the CancelledError
@@ -118,12 +134,6 @@ async def client2us_cmd_listener():
             await asyncio.sleep_ms(500)
 
 checksum = Checksum()
-
-async def incoming_data_handler(channel, data):
-    global current_checksum_sum, current_checksum_length
-    print("Incoming data", data, time.ticks_ms())
-    print("sending checksum", repr(to_send))
-    broker.publish("request_send_us2client", to_send)
 
 async def incoming_cmd_handler(channel, data):
     global checksum
@@ -167,21 +177,32 @@ async def incoming_cmd_handler(channel, data):
         print("data ends (do whatever with file now)")
         # reset the checksum to unstarted
         checksum.reset()
+    elif parts[1] == "request_cs":
+        if checksum.started():
+            cs_str = f"dmcs:{checksum.get()}"
+            broker.publish("request_send_us2client", cs_str)
+            print("On-demand CS sent")
+
+# Add global counters for debugging
+received_blocks = 0
 
 async def incoming_data_handler(channel, data):
-    global checksum
+    global checksum, received_blocks
     if not checksum.started():
-        print("Got data when there was no open transmission")
         return
     checksum.add(data)
-    print("Incoming data", data, "reply with checksum", checksum.get(), time.ticks_ms())
-    broker.publish("request_send_us2client", f"dmcs:{checksum.get()}")
+    received_blocks += 1
+    #print(f"Recv block {received_blocks}, len={len(data)}, total_len={checksum.len}")
+    # Still notify on modulo or periodic task
+    if received_blocks % 50 == 0:
+        cs_str = f"dmcs:{checksum.get()}"
+        broker.publish("request_send_us2client", cs_str)
 
 # listens to request_send_us2client queue and sends things on it
 async def outgoing_message_sender(channel, data):
-    print("send to client", data, time.ticks_ms())
+    #print("send to client", data, time.ticks_ms())
     us2client_characteristic.write(data, send_update=True)
-    print("send to client after send", data, time.ticks_ms())
+    #print("send to client after send", data, time.ticks_ms())
 
 # Serially wait for connections. Don't advertise while a central is
 # connected.
@@ -203,11 +224,12 @@ async def main():
     t_srv = asyncio.create_task(connection_task())
     t_c2u_cmd = asyncio.create_task(client2us_cmd_listener())
     t_c2u_data = asyncio.create_task(client2us_data_listener())
+    t_cssend = asyncio.create_task(periodic_checksum_sender())
 
     broker.subscribe("incoming_data_handler", incoming_data_handler)
     broker.subscribe("incoming_cmd_handler", incoming_cmd_handler)
     broker.subscribe("request_send_us2client", outgoing_message_sender)
-    await asyncio.gather(t_c2u_cmd, t_c2u_data, t_srv)
+    await asyncio.gather(t_c2u_cmd, t_c2u_data, t_srv, t_cssend)
 
 print("App startup")
 asyncio.run(main())

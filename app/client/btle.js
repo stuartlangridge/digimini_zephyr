@@ -1,4 +1,3 @@
-const INTER_WRITE_DELAY_MS = 30;
 
 class BTLEManager {
     constructor(options) {
@@ -140,8 +139,9 @@ class BTLEBlockSender {
     constructor(options) {
         this.bt = options.bt;
         this.blocks = [];
-        for (let i=0; i<options.data.length; i+=20) {
-            const bytes = new TextEncoder().encode(options.data.substr(i, 20));
+        const BLOCK_SIZE = 240; // must be smaller than MTU
+        for (let i=0; i<options.data.length; i+=BLOCK_SIZE) {
+            const bytes = new TextEncoder().encode(options.data.substr(i, BLOCK_SIZE));
             this.blocks.push(bytes);
         }
         this.handlers = options.handlers;
@@ -152,25 +152,56 @@ class BTLEBlockSender {
         await this.send_dmcmd(`send_data:${this.blocks.length}`);
         await this.waitForServerReply('dmres:goahead');
         console.log("received server goahead");
-        let cs_len = 0;
-        let cs_sum = 0;
-        for (let [index, block] of this.blocks.entries()) {
-            cs_len += block.length;
-            for (let i=0; i<block.length; i++) {
-                cs_sum += block[i];
+        
+        const INITIAL_BURST_SIZE = 20;     // Start tiny! Increase only after success
+        const MAX_BURST_SIZE = 120;
+        const BASE_BURST_SIZE = 10;
+        const INTER_WRITE_DELAY_MS = 0;
+        const BURST_TIMEOUT_MS = 15000;
+
+        let sentBlocks = 0;
+        let lastKnownDeviceBlocks = 0;     // Track last reported progress
+        let localSum = 0;
+        let localLen = 0;
+
+        while (sentBlocks < this.blocks.length) {
+            let burstSize = Math.min(BASE_BURST_SIZE + Math.floor(sentBlocks / 20), 40); // ramp to 40 blocks = 8 kB bursts
+            const thisBurst = Math.min(burstSize, this.blocks.length - sentBlocks);
+
+            console.log(`Burst attempt: blocks ${sentBlocks + 1} → ${sentBlocks + thisBurst} (size ${thisBurst})`);
+
+            for (let i = 0; i < thisBurst; i++) {
+                const block = this.blocks[sentBlocks + i];
+                for (let byte of block) localSum = (localSum + byte) % 256;
+                localLen = (localLen + block.length) % 256;
+
+                await this.bt.chars.us2server_data.writeValueWithoutResponse(block);
+                await new Promise(r => setTimeout(r, INTER_WRITE_DELAY_MS));
             }
-            cs_len %= 256;
-            cs_sum %= 256;
-            const expected = `dmcs:${cs_sum},${cs_len},${index+1}`;
-            console.log(`Sending block ${index} (${block.length}) to ${this.bt.chars.us2server_data}`);
-            await this.bt.chars.us2server_data.writeValueWithoutResponse(block);
-            await this.waitForServerReply(expected);
-            console.log(`Blocks to ${index} sent OK`);
-            this.handlers.progress(
-                (index+1) / this.blocks.length,
-                new Date().getTime() - startTime);
-            await new Promise(r => setTimeout(r, INTER_WRITE_DELAY_MS));
+
+            sentBlocks += thisBurst;
+            const previousProgress = lastKnownDeviceBlocks;
+            await this.send_dmcmd("request_cs");
+            try {
+                lastKnownDeviceBlocks = await this.waitForAnyChecksumProgress(
+                    previousProgress,
+                    sentBlocks,
+                    BURST_TIMEOUT_MS);
+                console.log(`Progress OK: device reports >= ${lastKnownDeviceBlocks} blocks`);
+            } catch (e) {
+                console.error("Burst failed:", e);
+                if (lastKnownDeviceBlocks > previousProgress) {  // some progress
+                    console.log("Partial progress; continuing cautiously");
+                    // proceed to next burst without throw
+                } else {
+                    console.error("No progress at all in this burst → likely full stall");
+                    throw e;  // full stall → abort
+                }
+            }
+
+            this.handlers.progress(sentBlocks / this.blocks.length, Date.now() - startTime);
         }
+
         await this.send_dmcmd(`end_data`);
         this.handlers.success();
     }
@@ -181,6 +212,52 @@ class BTLEBlockSender {
         //console.log("bs from server", data, text);
         this._mostRecentServerReply = text;
     }
+
+    async waitForAnyChecksumProgress(previousBlocks, currentSentBlocks, timeoutMs) {
+        const start = Date.now();
+        let highestSeen = previousBlocks;
+
+        while (Date.now() - start < timeoutMs) {
+            if (this._mostRecentServerReply?.startsWith('dmcs:')) {
+                const parts = this._mostRecentServerReply.split(':')[1].split(',');
+                const sum = parseInt(parts[0]);
+                const len = parseInt(parts[1]);
+                const blocks = parseInt(parts[2]);
+
+                if (blocks > highestSeen) {
+                    highestSeen = blocks;
+                    console.log(`Device advanced to ${blocks} blocks (local sent: ${currentSentBlocks})`);
+                }
+
+                if (blocks >= currentSentBlocks - 60) {  // ← use the passed param
+                    return highestSeen;
+                }
+            }
+            await new Promise(r => setTimeout(r, 30));
+        }
+
+        console.warn(`Timeout. Last device progress: ${highestSeen}, expected ~${currentSentBlocks}`);
+        throw new Error(`Timeout waiting for progress (last seen ${highestSeen}, need ~${currentSentBlocks})`);
+    }
+
+    async waitForChecksumProgress(minBlocks, timeoutMs) {
+        const start = Date.now();
+        let lastSeenBlocks = 0;
+        while (Date.now() - start < timeoutMs) {
+            if (this._mostRecentServerReply?.startsWith('dmcs:')) {
+                const [, sum, len, blocksStr] = this._mostRecentServerReply.split(/[:,]/);
+                const blocks = parseInt(blocksStr);
+                if (blocks >= minBlocks) {
+                    console.log(`Good progress: device at ${blocks} blocks`);
+                    return;
+                }
+                if (blocks > lastSeenBlocks) lastSeenBlocks = blocks;  // track advancement
+            }
+            await new Promise(r => setTimeout(r, 40));  // faster polling
+        }
+        throw new Error(`Timeout waiting for checksum progress >= ${minBlocks}`);
+    }
+
     async waitForServerReply(expected, timeout) {
         //console.log("Waiting for server reply", expected);
         const actual_timeout = timeout || 1000;

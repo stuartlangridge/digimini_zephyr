@@ -90,6 +90,7 @@ async function sendBtnClick(e) {
 
     const benchmarkResult = `Completed in ${seconds.toFixed(1)} s | ${kbSent.toFixed(2)} kB | ${secPerKb} s/kB | ${kbPerSec} kB/s`;
     setStatus(benchmarkResult);
+    console.log("benchmark", benchmarkResult);
   }
 }
 async function checkSendBtn() {
