@@ -14,7 +14,18 @@
     #status { margin: 1em 0; padding: 0.6em 1em; border-radius: 6px; background: #f0f4f8; min-height: 1.2em; }
     #total { font-weight: bold; font-size: 1.3rem; color: #0066cc; }
     progress { width: 100%; height: 1.2rem; margin-top: 0.5em; accent-color: #0066cc; }
-    .section { margin: 1.5em 0; }
+    section { margin: 1.5em 0; }
+    .thumbnail {
+      width: 80px;
+      height: 160px;
+      object-fit: cover;
+      border: 2px solid transparent;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .thumbnail.selected {
+      border-color: #0066cc;
+    }
   </style>
 </head>
 <body>
@@ -25,18 +36,39 @@
 </nav>
 <p id="status">Status: Not connected</p>
 <main>
-  <label for="dataBox">Data to send:</label><br>
-  <textarea id="dataBox" placeholder="Type or paste here..."></textarea><br>
-  <button id="fill5kBtn">Fill with 5k random chars</button>
-  <button id="fill50Btn">Fill with 50 random chars</button>
-  <button id="sendBtn" disabled>Send text</button>
+  <section>
+    <h1>Send text</h1>
+    <label for="dataBox">Data to send:</label><br>
+    <textarea id="dataBox" placeholder="Type or paste here..."></textarea><br>
+    <button id="fill5kBtn">Fill with 5k random chars</button>
+    <button id="fill50Btn">Fill with 50 random chars</button>
+    <button id="sendTextBtn" disabled>Send text</button>
+  </section>
+
+  <section>
+    <h1>Send image</h1>
+    <label>Choose image:</label><br>
+    <div id="image-list" style="display: flex; flex-wrap: wrap; gap: 12px; margin: 1em 0;">
+      <!-- Predefined images will be inserted here -->
+    </div>
+
+    <label for="imageUpload" style="display: block; margin: 1em 0 0.5em;">Or upload your own:</label>
+    <input type="file" id="imageUpload" accept="image/*">
+
+    <div style="margin: 1.5em 0;">
+      <img id="preview" style="max-width: 100%; height: auto; border: 1px solid #ccc; border-radius: 6px; display: none;">
+    </div>
+    <button id="sendImageBtn" disabled>Send image (80×160)</button>
+  </section>
 </main>
+
 <aside id="progressContainer" hidden>
   <label>Sending progress:</label><br>
   <progress id="progressBar" value="0" max="100"></progress>
   <span id="progressText">0%</span>
 </aside>
 <script src="btle.js"></script>
+<script src="image.js"></script>
 <script>
 // definitions
 const connectBtn = document.getElementById("connectBtn");
@@ -45,7 +77,8 @@ const status = document.getElementById("status");
 const dataBox = document.getElementById("dataBox");
 const fill5kBtn = document.getElementById("fill5kBtn");
 const fill50Btn = document.getElementById("fill50Btn");
-const sendBtn = document.getElementById("sendBtn");
+const sendTextBtn = document.getElementById("sendTextBtn");
+const sendImageBtn = document.getElementById("sendImageBtn");
 const progressContainer = document.getElementById("progressContainer");
 const progressBar = document.getElementById("progressBar");
 const progressText = document.getElementById("progressText");
@@ -75,9 +108,7 @@ async function fill(length) {
   setStatus("Textarea filled with 5000 random characters");
   checkSendBtn();
 }
-async function sendBtnClick(e) {
-  const tosend = dataBox.value.trim();
-  if (tosend.length > 0) {
+async function sendBtnClick(tosend) {
     progressBar.value = 0;
     progressContainer.hidden = false;
     const res = await btleManager.send(tosend);
@@ -91,15 +122,31 @@ async function sendBtnClick(e) {
     const benchmarkResult = `Completed in ${seconds.toFixed(1)} s | ${kbSent.toFixed(2)} kB | ${secPerKb} s/kB | ${kbPerSec} kB/s`;
     setStatus(benchmarkResult);
     console.log("benchmark", benchmarkResult);
+}
+async function sendTextBtnClick(e) {
+  const tosend = dataBox.value.trim();
+  if (tosend.length > 0) {
+    await sendBtnClick(tosend);
+  }
+}
+async function sendImageBtnClick(e) {
+  const tosend = selectedImageData;
+  if (tosend) {
+    await sendBtnClick(tosend);
   }
 }
 async function checkSendBtn() {
-    if (dataBox.value.trim().length > 0 && btleManager.connected) {
-      sendBtn.disabled = false;
-    } else {
-      sendBtn.disabled = true;
-    }
-
+  // checks both buttons
+  if (dataBox.value.trim().length > 0 && btleManager.connected) {
+    sendTextBtn.disabled = false;
+  } else {
+    sendTextBtn.disabled = true;
+  }
+  if (selectedImageData !== null && btleManager.connected) {
+    sendImageBtn.disabled = false;
+  } else {
+    sendImageBtn.disabled = true;
+  }
 }
 async function dataEntered(e) {
   checkSendBtn();
@@ -131,7 +178,8 @@ connectBtn.addEventListener("click", connectBtnClick);
 disconnectBtn.addEventListener("click", disconnectBtnClick);
 fill5kBtn.addEventListener("click", () => { fill(5000); });
 fill50Btn.addEventListener("click", () => { fill(50); });
-sendBtn.addEventListener("click", sendBtnClick);
+sendTextBtn.addEventListener("click", sendTextBtnClick);
+sendImageBtn.addEventListener("click", sendImageBtnClick);
 dataBox.addEventListener("input", dataEntered);
 </script>
 </body>

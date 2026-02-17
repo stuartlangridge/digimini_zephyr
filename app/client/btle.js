@@ -138,14 +138,28 @@ class BTLEManager {
 class BTLEBlockSender {
     constructor(options) {
         this.bt = options.bt;
+        this.handlers = options.handlers;
+
         this.blocks = [];
         const BLOCK_SIZE = 240; // must be smaller than MTU
-        for (let i=0; i<options.data.length; i+=BLOCK_SIZE) {
-            const bytes = new TextEncoder().encode(options.data.substr(i, BLOCK_SIZE));
-            this.blocks.push(bytes);
+        let data = options.data;
+        if (typeof data === 'string') {
+            // Text → encode to UTF-8 bytes
+            const encoder = new TextEncoder();
+            data = encoder.encode(data);
+        } else if (data instanceof ArrayBuffer) {
+            // Accept ArrayBuffer directly
+            data = new Uint8Array(data);
+        } else if (!(data instanceof Uint8Array)) {
+            throw new Error("send() expects string, Uint8Array or ArrayBuffer");
         }
-        this.handlers = options.handlers;
+        // Now data is definitely Uint8Array
+        for (let i = 0; i < data.length; i += BLOCK_SIZE) {
+            const chunk = data.subarray(i, i + BLOCK_SIZE);
+            this.blocks.push(chunk);
+        }
     }
+
     async start() {
         const startTime = new Date().getTime();
         console.log("start sending", this.blocks.length, "blocks to", this.bt);

@@ -192,7 +192,7 @@ async def incoming_data_handler(channel, data):
         return
     checksum.add(data)
     received_blocks += 1
-    #print(f"Recv block {received_blocks}, len={len(data)}, total_len={checksum.len}")
+    # print(f"Recv block {data}")
     # Still notify on modulo or periodic task
     if received_blocks % 50 == 0:
         cs_str = f"dmcs:{checksum.get()}"
