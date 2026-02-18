@@ -17,8 +17,9 @@ window.onload = () => {
       thumb.classList.add("selected");
 
       try {
-        selectedImageData = await processImageTo80x160(url);
-        previewImg.src = URL.createObjectURL(new Blob([selectedImageData], {type: "image/png"}));
+        const result = await processImageTo80x160_565(url);
+        selectedImageData = result.as_565;
+        previewImg.src = URL.createObjectURL(new Blob([result.as_png], {type: "image/png"}));
         previewImg.style.display = "block";
         checkSendBtn();
       } catch (err) {
@@ -27,6 +28,13 @@ window.onload = () => {
     };
     imageList.appendChild(thumb);
   });
+}
+
+function rgbToRgb565(r, g, b) {
+    const red = r >> 3;
+    const green = g >> 2;
+    const blue = b >> 3;
+    return (red << 11) | (green << 5) | blue;
 }
 
 imageUpload.onchange = async (e) => {
@@ -39,9 +47,10 @@ imageUpload.onchange = async (e) => {
   try {
     setStatus("Processing image...");
 
-    selectedImageData = await processImageTo80x160(file);
+    const result = await processImageTo80x160_565(file);
+    selectedImageData = result.as_565;
 
-    const resizedBlob = new Blob([selectedImageData], { type: "image/png" });
+    const resizedBlob = new Blob([result.as_png], { type: "image/png" });
     previewImg.src = URL.createObjectURL(resizedBlob);
     previewImg.style.display = "block";
 
@@ -59,7 +68,9 @@ imageUpload.onchange = async (e) => {
   }
 };
 
-async function processImageTo80x160(fileOrUrl) {
+async function processImageTo80x160_565(fileOrUrl) {
+  /* Scales image, converts to RGB565 format (for device)
+     and PNG (for thumbnail) */
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = "anonymous"; // needed if using external URLs
@@ -98,10 +109,24 @@ async function processImageTo80x160(fileOrUrl) {
         0, 0, 80, 160                         // destination = exact size
       );
 
+      // First, convert to RGB565
+      // https://longfangsong.github.io/en/image-to-rgb565/
+      let imgData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      let rgb565Data = new ArrayBuffer(imgData.length / 4 * 2);
+      let rgb565view = new DataView(rgb565Data);
+      for (let i = 0; i < imgData.length; i += 4) {
+        const r = imgData[i];
+        const g = imgData[i + 1];
+        const b = imgData[i + 2];
+        rgb565view.setUint16(i / 4 * 2, rgbToRgb565(r, g, b), true);
+      }
+
+      // and now to blob
       canvas.toBlob((blob) => {
         if (!blob) return reject("Cannot create blob");
         blob.arrayBuffer().then(buf => {
-          resolve(new Uint8Array(buf));
+          const as_png = new Uint8Array(buf)
+          resolve({as_png, as_565: rgb565view});
         });
       }, "image/png", 0.92);   // or "image/jpeg", 0.85 if you prefer smaller size
     };
