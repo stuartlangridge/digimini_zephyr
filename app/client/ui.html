@@ -42,50 +42,98 @@ h1 {
     font-weight: normal;
 }
 
-connect-digimini button#connect {
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 5px;
-    border: 0;
-    position: absolute;
-    top: 25vh;
-    left: 50%;
-    width: 30vh;
-    aspect-ratio: 1/1;
-    transform: translateX(-50%);
-    border: 2px solid var(--medium);
-    box-shadow: 4px 4px 4px rgba(0, 0, 0, 0.5);
+digimini-connect {
+    button#connect {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 5px;
+        border: 0;
+        position: absolute;
+        top: 25vh;
+        left: 50%;
+        width: 30vh;
+        aspect-ratio: 1/1;
+        transform: translateX(-50%);
+        border: 2px solid var(--medium);
+        box-shadow: 4px 4px 4px rgba(0, 0, 0, 0.5);
+    }
+    button#connect img.base {
+        position: absolute;
+        width: 80%;
+        height: 80%;
+        top: 10%;
+        left: 10%;
+        object-fit: contain;
+    }
+    button#connect img.status {
+        position: absolute;
+        top: 20%;
+        left: 40%;
+        width: 20%;
+        height: 20%;
+        object-fit: contain;
+    }
+    button#connect img.status.static {
+        position: absolute;
+        top: 10%;
+        left: 30%;
+        width: 40%;
+        height: 50%;
+        object-fit: cover;
+    }
+    button#connect img.status { display: none; }
+    button#connect.scanning img.status.scanning,
+    button#connect.static img.status.static {
+        display: block;
+    }
 }
-connect-digimini button#connect img.base {
-    position: absolute;
-    width: 80%;
-    height: 80%;
-    top: 10%;
-    left: 10%;
-    object-fit: contain;
-}
-connect-digimini button#connect img.status {
-    position: absolute;
-    top: 20%;
-    left: 40%;
-    width: 20%;
-    height: 20%;
-    object-fit: contain;
-}
-
 </style>
 </head>
 <body>
 <main>
-    <connect-digimini>
+    <digimini-connect>
         <form>
             <h1>Tap to connect digimini</h1>
-            <button id="connect" class="waiting">
+            <button id="connect" class="awaiting-click">
+                <img class="status scanning" src="scanning-anim.svg">
+                <img class="status static" src="static-tv-static.gif">
                 <img class="base" src="digimini-symbolic.svg"
                     alt="Tap to connect">
-                <img class="status waiting" src="scanning-anim.svg">
             </button>
         </form>
-    </connect-digimini>
+    </digimini-connect>
 </main>
+
+<script>
+window.customElements.define(
+    'digimini-connect', class extends HTMLElement {
+    constructor() {
+        super();
+    }
+    connectedCallback() {
+        this.button = this.querySelector("button");
+        this.button.addEventListener("click", this)
+    }
+    disconnectedCallback() {
+        this.button.removeEventListener("click", this)
+    }
+    handleEvent(e) {
+        e.preventDefault();
+        if (e.target.closest("button") == this.button && e.type == "click") this.clickButton();
+    }
+    transitionTo(state, call) {
+        this.button.className = "static";
+        call();
+        setTimeout(() => { this.button.className = state }, 150);
+    }
+    clickButton() {
+        if (this.button.className == "awaiting-click") {
+            this.transitionTo("scanning", this.scan);
+        }
+    }
+    scan() {
+        console.log("begin scan");
+    }
+});
+</script>
 </body>
 </html>

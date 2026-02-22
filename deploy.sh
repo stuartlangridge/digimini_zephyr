@@ -54,7 +54,19 @@ egrep -v '^#|^\s*$' "$D"/app/server/mplib_deps.txt | while read -r dep; do
   fi
 done
 
+cecho "Copying extra non-micropython-lib dependencies"
+if mpremote fs ls /flash/lib/ | grep ST7735.py > /dev/null; then
+  echo Already got ST7735
+else
+  mpremote fs cp app/server/ST7735.py :/flash/lib/
+fi
+if mpremote fs ls /flash/lib/ | grep sysfont.py > /dev/null; then
+  echo Already got sysfont
+else
+  mpremote fs cp app/server/sysfont.py :/flash/lib/
+fi
+
 echo For now we simply run our app without actually storing it on the device
 echo Eventually this will package it up, but this is ok for iterating
 
-mpremote run "$D"/app/server/app.py
+mpremote run "$D"/app/server/screen.py
