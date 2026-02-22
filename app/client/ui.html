@@ -85,6 +85,20 @@ digimini-connect {
     button#connect.static img.status.static {
         display: block;
     }
+    output {
+        color: var(--highlight);
+        position: absolute;
+        top: 57vh;
+        left: 50%;
+        width: 30vh;
+        transform: translateX(-50%);
+        text-align: center;
+        opacity: 1;
+        transition: opacity 0.2s ease;
+    }
+    output:empty {
+        opacity: 0;
+    }
 }
 </style>
 </head>
@@ -99,22 +113,35 @@ digimini-connect {
                 <img class="base" src="digimini-symbolic.svg"
                     alt="Tap to connect">
             </button>
+            <output></output>
         </form>
     </digimini-connect>
 </main>
 
 <script>
+
+class FakeBTLEManager {
+    async getDevice() {
+        await new Promise(r => setTimeout(r, 3000));
+        return {name: "mydigimini"}
+    }
+}
+
+const btleManager = new FakeBTLEManager();
+
 window.customElements.define(
     'digimini-connect', class extends HTMLElement {
     constructor() {
         super();
+        this.device = null;
     }
     connectedCallback() {
         this.button = this.querySelector("button");
-        this.button.addEventListener("click", this)
+        this.button.addEventListener("click", this);
+        this.errorOutput = this.querySelector("output");
     }
     disconnectedCallback() {
-        this.button.removeEventListener("click", this)
+        this.button.removeEventListener("click", this);
     }
     handleEvent(e) {
         e.preventDefault();
@@ -122,7 +149,7 @@ window.customElements.define(
     }
     transitionTo(state, call) {
         this.button.className = "static";
-        call();
+        if (call) call.bind(this)();
         setTimeout(() => { this.button.className = state }, 150);
     }
     clickButton() {
@@ -130,10 +157,46 @@ window.customElements.define(
             this.transitionTo("scanning", this.scan);
         }
     }
-    scan() {
-        console.log("begin scan");
+    async scan() {
+        let device;
+        let aborted = false;
+        function abort() {
+            aborted = true;
+        }
+        console.log("before", this);
+        //const timeout = setTimeout(abort.bind(this), 2000);
+        try {
+            device = await btleManager.getDevice();
+        } catch(e) {
+            console.log("Got error when scanning", e);
+        }
+        if (aborted || !device) {
+            this.showError("Couldn’t connect to digimini; please try again");
+            this.transitionTo("awaiting-click");
+            return;
+        }
+        console.log("got device", device);
+        this.transitionTo("connected");
+    }
+    showError(text) {
+        this.errorOutput.style.opacity = 0;
+        this.errorOutput.textContent = text;
+        const anim = this.errorOutput.animate([
+            {opacity: 0},
+            {opacity: 1, offset: 0.2},
+            {opacity: 1, offset: 0.8},
+            {opacity: 0}
+        ], {
+            duration: 2000
+        })
+        anim.onfinish = () => {
+            this.errorOutput.style.opacity = 0;
+            this.errorOutput.textContent = text;
+        }
     }
 });
+
+
 </script>
 </body>
 </html>
