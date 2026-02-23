@@ -122,6 +122,18 @@ main.digimini-connected digimini-connected {
 }
 
 digimini-connected {
+
+    &.loading::after {
+        content: "";
+        width: 100px;
+        height: 100px;
+        position: absolute;
+        top: 13vh;
+        left: 35%;
+        background: url(scanning-anim.svg) center center no-repeat;
+        backgroound-size: contain;
+    }
+
     #disconnect {
         position: absolute;
         top: 5vh;
@@ -182,19 +194,28 @@ digimini-connected {
         display: block;
         pointer-events: none;
     }
-    #device-images li button#add-image {
-        position: absolute;
-        width: 100%;
-        left: 0;
-        top: 0;
-        aspect-ratio: 1/2;
-        display: block;
+    #device-images li.add  {
         border: 2px solid var(--green);
         color: var(--green);
         box-shadow: 4px 4px 4px rgba(0, 0, 0, 0.5);
-        background: transparent;
         border-radius: 8px;
         font-size: 8vw;
+    }
+    #device-images li.add::after {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        content: "+";
+        pointer-events: none;
+    }
+    #device-images li.add input {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        opacity: 0;
     }
     #device-images li.image button {
         position: absolute;
@@ -236,11 +257,17 @@ digimini-connected {
     </digimini-connect>
 
     <digimini-connected>
-        <h1>Connected to <output>...</output></h1>
-        <ul id="device-images">
-            <li class="add"><button id="add-image">+</button></li>
-        </ul>
-        <button id="disconnect">Disconnect</button>
+        <form>
+            <h1>Connected to <output>...</output></h1>
+            <ul id="device-images">
+                <li class="add">
+                    <input type="file" id="add-image" 
+                     accept="image/*" value="add image"
+                     multiple>
+                </li>
+            </ul>
+            <button id="disconnect">Disconnect</button>
+        </form>
     </digimini-connected>
 </main>
 
@@ -262,7 +289,7 @@ class FakeBTLEManager {
     }
     async getImageData(imageName) {
         // this should be cached somewhere, but not in here; once it's returned
-        await new Promise(r => setTimeout(r, 1500));
+        await new Promise(r => setTimeout(r, 500));
         return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAACCAIAAAAW4yFwAAAACXBIWXMAAC4jAAAuIwF4pT92AAAAEElEQVQI12P4uI2fiYGBAQALNgG5gDAvrQAAAABJRU5ErkJggg==";
     }
 }
@@ -358,15 +385,18 @@ window.customElements.define(
     connectedCallback() {
         this.displayDeviceName = this.querySelector("h1 output");
         this.imageList = this.querySelector("ul#device-images");
-        this.imageAddButton = this.querySelector("ul#device-images li button");
-        this.imageAddButton.addEventListener("click", this);
+        this.imageAddButton = this.querySelector("ul#device-images li #add-image");
+        this.imageAddButton.addEventListener("change", this);
         this.imageTemplate = this.querySelector("ul#device-images li").cloneNode(true);
-        this.imageTemplate.querySelector("button").id = "";
+        this.imageTemplate.querySelector("input").remove();
+        const imageButton = document.createElement("button");
+        imageButton.append("edit");
+        this.imageTemplate.append(imageButton);
         this.imageTemplate.className = "image loading";
         this.disconnectButton = this.querySelector("#disconnect");
         console.log(this.disconnectButton)
         this.disconnectButton.addEventListener("click", this);
-
+        this.className = "loading"; /* before images show up */
     }
     set device(adevice) {
         this._device = adevice;
@@ -380,6 +410,7 @@ window.customElements.define(
         }
 
         const imagesMeta = await btleManager.getImagesMeta();
+        this.classList.remove("loading"); /* images now showing up */
         for (const imageMeta of imagesMeta) {
             const imgLi = this.imageTemplate.cloneNode(true);
             const button = imgLi.querySelector("button")
@@ -389,6 +420,8 @@ window.customElements.define(
             this.imageList.append(imgLi);
             imageMeta.li = imgLi;
         }
+
+
         // get the actual images
         // we can't Promise.race these because we only have one btle line
         for (const imageMeta of imagesMeta) {
@@ -402,13 +435,30 @@ window.customElements.define(
     async handleEvent(e) {
         if (e.type == "click") {
             if (e.target === this.disconnectButton) {
-                this.disconnect();
-            } else if (e.target == this.imageAddButton) {
-                this.addImage();
+                this.executeDisconnect();
             } else if (e.target.dataset.imageName) {
-                this.clickImage(e.target)
+                this.clickImage(e.target);
+            }
+        } else if (e.type == "change" && e.target == this.imageAddButton) {
+                this.addImage(e);
+        }
+    }
+    async addImage(e) {
+        if (e.target.files.length > 0) {
+            for (const f of e.target.files) {
+                const fileReader = new FileReader(f);
+                fileReader.readAsDataURL(f);
+                fileReader.addEventListener("load", function () {
+                    console.log(f, this.result.substr(0,30));
+                });
             }
         }
+    }
+    async executeDisconnect() {
+        console.log("execute disconnect");
+    }
+    async clickImage(button) {
+        console.log("click image", button);
     }
 })
 
