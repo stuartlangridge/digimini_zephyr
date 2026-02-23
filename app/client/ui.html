@@ -82,6 +82,7 @@ digimini-connect {
     }
     button#connect img.status { display: none; }
     button#connect.scanning img.status.scanning,
+    button#connect.connected img.status.connected,
     button#connect.static img.status.static {
         display: block;
     }
@@ -109,6 +110,7 @@ digimini-connect {
             <h1>Tap to connect digimini</h1>
             <button id="connect" class="awaiting-click">
                 <img class="status scanning" src="scanning-anim.svg">
+                <img class="status connected" src="smiley.svg">
                 <img class="status static" src="static-tv-static.gif">
                 <img class="base" src="digimini-symbolic.svg"
                     alt="Tap to connect">
@@ -164,7 +166,7 @@ window.customElements.define(
             aborted = true;
         }
         console.log("before", this);
-        //const timeout = setTimeout(abort.bind(this), 2000);
+        //const timeout = setTimeout(abort.bind(this), 2000); // test abort
         try {
             device = await btleManager.getDevice();
         } catch(e) {
