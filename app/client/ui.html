@@ -9,24 +9,34 @@
 :root {
     /* colour palette from coolors.co */
     --white: #eff8e2; /* honeydew */
+    --white-transparent: #eff8e255; /* honeydew */
     --light: #b287a3; /* dusty mauve */
     --medium: #475b5a; /* granite */
     --dark: #23022e; /* dark amethyst */
     --highlight: #bb4430; /* tomato jam */
+    --green: #6afebe;
 }
-body {
-    display: grid;
-    align-items: center;
-    justify-content: center;
-    background: #eee;
+@media (width <= 650px) {
+}
+@media (width > 650px) {
+    /* display fake "mobile" view */
+    body {
+        display: grid;
+        align-items: center;
+        justify-content: center;
+        background: #eee;
+    }
+    main {
+        height: 80vh;
+        aspect-ratio: 9 / 19.5;
+        border-radius: 4vh;
+    }
 }
 main {
-    height: 80vh;
-    aspect-ratio: 9 / 19.5;
-    border-radius: 4vh;
     background: linear-gradient(to bottom, var(--medium) 20%, var(--dark) 60%);
     color: var(--white);
     font-family: system-ui;
+    position: relative;
 }
 
 h1 {
@@ -36,9 +46,7 @@ h1 {
     width: 100%;
     height: 5vh;
     font-size: 2vh;
-    display: grid;
-    align-items: center;
-    justify-content: center;
+    text-align: center;
     font-weight: normal;
 }
 
@@ -101,10 +109,118 @@ digimini-connect {
         opacity: 0;
     }
 }
+
+main > * {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 250ms ease;
+}
+main.digimini-connect digimini-connect,
+main.digimini-connected digimini-connected {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+digimini-connected {
+    #disconnect {
+        position: absolute;
+        top: 5vh;
+        left: 50%;
+        transform: translateX(-50%);
+        margin: 1vh 0;
+        border: 2px solid var(--green);
+        color: var(--green);
+        box-shadow: 4px 4px 4px rgba(0, 0, 0, 0.5);
+        background: transparent;
+        font-size: 2vh;
+        border-radius: 20px;
+        height: 4vh;
+        padding: 0 2vh;
+    }
+
+    #device-images {
+        position: absolute;
+        top: 12vh;
+        left: 0;
+        right: 0;
+        bottom: 5vh;
+        overflow-y: auto;
+        overflow-x: visible;
+        list-style: none;
+        margin: 0 1vh;
+        padding: 0;
+        width: calc(100% - 1vh - 1vh);
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+        grid-auto-rows: min-content;
+        box-sizing: border-box;
+    }
+    #device-images li {
+        width: 100%;
+        position: relative;
+    }
+    #device-images li:has(img) {
+        background: var(--white-transparent); /* polaroid border for images */
+    }
+    #device-images li::before { /* set box aspect ratio */
+        content: "";
+        display: inline-block;
+        width: 1px;
+        height: 0;
+        vertical-align: bottom; /* not text baseline; no gap at bottom */
+        padding-bottom: calc(100% * 2); /* 1:2 */
+    }
+    #device-images li img {
+        position: absolute;
+        width: calc(100% - 2px);
+        left: 1px;
+        top: 50%;
+        transform: translateY(-50%);
+        aspect-ratio: 1/2;
+        object-fit: contain;
+        display: block;
+        pointer-events: none;
+    }
+    #device-images li button#add-image {
+        position: absolute;
+        width: 100%;
+        left: 0;
+        top: 0;
+        aspect-ratio: 1/2;
+        display: block;
+        border: 2px solid var(--green);
+        color: var(--green);
+        box-shadow: 4px 4px 4px rgba(0, 0, 0, 0.5);
+        background: transparent;
+        border-radius: 8px;
+        font-size: 8vw;
+    }
+    #device-images li.image button {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        left: 0;
+        top: 0;
+        background: transparent;
+        display: block;
+    }        
+    #device-images li.image.loading::after {
+        content: "";
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        left: 0;
+        top: 0;
+        display: block;
+        background: url(static-tv-static.gif) center center no-repeat;
+        background-size: cover;
+    }        
+}
 </style>
 </head>
 <body>
-<main>
+<main class="digimini-connect">
     <digimini-connect>
         <form>
             <h1>Tap to connect digimini</h1>
@@ -118,18 +234,50 @@ digimini-connect {
             <output></output>
         </form>
     </digimini-connect>
+
+    <digimini-connected>
+        <h1>Connected to <output>...</output></h1>
+        <ul id="device-images">
+            <li class="add"><button id="add-image">+</button></li>
+        </ul>
+        <button id="disconnect">Disconnect</button>
+    </digimini-connected>
 </main>
 
 <script>
 
 class FakeBTLEManager {
     async getDevice() {
-        await new Promise(r => setTimeout(r, 3000));
+        await new Promise(r => setTimeout(r, 300)); // fake a delay
         return {name: "mydigimini"}
     }
+    async getImagesMeta() {
+        // return a list of image names
+        await new Promise(r => setTimeout(r, 1500));
+        return [
+            {name: "im1"},
+            {name: "im2"},
+            {name: "im3"},
+        ]
+    }
+    async getImageData(imageName) {
+        // this should be cached somewhere, but not in here; once it's returned
+        await new Promise(r => setTimeout(r, 1500));
+        return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAACCAIAAAAW4yFwAAAACXBIWXMAAC4jAAAuIwF4pT92AAAAEElEQVQI12P4uI2fiYGBAQALNgG5gDAvrQAAAABJRU5ErkJggg==";
+    }
 }
-
 const btleManager = new FakeBTLEManager();
+
+class Orchestrator {
+    transitionTo(elementName, props) {
+        const element = document.querySelector(elementName);
+        for (const [prop, value] of Object.entries(props)) {
+            element[prop] = value;
+        }
+        document.querySelector("main").className = elementName;
+    }
+}
+const orchestrator = new Orchestrator();
 
 window.customElements.define(
     'digimini-connect', class extends HTMLElement {
@@ -178,7 +326,9 @@ window.customElements.define(
             return;
         }
         console.log("got device", device);
-        this.transitionTo("connected");
+        this.transitionTo("connected", () => {
+            orchestrator.transitionTo("digimini-connected", {device})
+        });
     }
     showError(text) {
         this.errorOutput.style.opacity = 0;
@@ -198,6 +348,69 @@ window.customElements.define(
     }
 });
 
+
+window.customElements.define(
+    'digimini-connected', class extends HTMLElement {
+    constructor() {
+        super();
+        this._device = null;
+    }
+    connectedCallback() {
+        this.displayDeviceName = this.querySelector("h1 output");
+        this.imageList = this.querySelector("ul#device-images");
+        this.imageAddButton = this.querySelector("ul#device-images li button");
+        this.imageAddButton.addEventListener("click", this);
+        this.imageTemplate = this.querySelector("ul#device-images li").cloneNode(true);
+        this.imageTemplate.querySelector("button").id = "";
+        this.imageTemplate.className = "image loading";
+        this.disconnectButton = this.querySelector("#disconnect");
+        console.log(this.disconnectButton)
+        this.disconnectButton.addEventListener("click", this);
+
+    }
+    set device(adevice) {
+        this._device = adevice;
+        this.displayDeviceName.textContent = this._device.name;
+        this.fetchImages();
+    }
+    async fetchImages() {
+        for (const removeLi of Array.from(this.imageList.querySelector("li"))) {
+            if (removeLi.className == "add") continue; // keep add button
+            removeLi.remove();
+        }
+
+        const imagesMeta = await btleManager.getImagesMeta();
+        for (const imageMeta of imagesMeta) {
+            const imgLi = this.imageTemplate.cloneNode(true);
+            const button = imgLi.querySelector("button")
+            button.dataset.imageName = imageMeta.name;
+            button.addEventListener("click", this);
+            button.textContent = `Edit ${imageMeta.name}`;
+            this.imageList.append(imgLi);
+            imageMeta.li = imgLi;
+        }
+        // get the actual images
+        // we can't Promise.race these because we only have one btle line
+        for (const imageMeta of imagesMeta) {
+            const imageData = await btleManager.getImageData(imageMeta.name);
+            const img = document.createElement("img");
+            img.src = imageData;
+            imageMeta.li.append(img);
+            imageMeta.li.classList.remove("loading");
+        }
+    }
+    async handleEvent(e) {
+        if (e.type == "click") {
+            if (e.target === this.disconnectButton) {
+                this.disconnect();
+            } else if (e.target == this.imageAddButton) {
+                this.addImage();
+            } else if (e.target.dataset.imageName) {
+                this.clickImage(e.target)
+            }
+        }
+    }
+})
 
 </script>
 </body>
