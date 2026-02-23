@@ -17,6 +17,18 @@
     --green: #6afebe;
 }
 @media (width <= 650px) {
+    body {
+        width: 100vw;
+        height: 100vh;
+        margin: 0;
+        padding: 0;
+    }
+    main {
+        width: 100vw;
+        height: 100vh;
+        margin: 0;
+        padding: 0;
+    }
 }
 @media (width > 650px) {
     /* display fake "mobile" view */
@@ -225,6 +237,7 @@ digimini-connected {
         top: 0;
         background: transparent;
         display: block;
+        user-select: none;
     }        
     #device-images li.image.loading::after {
         content: "";
@@ -238,6 +251,64 @@ digimini-connected {
         background-size: cover;
     }        
 }
+
+digimini-connected #device-images.shaking {
+
+    overflow: visible;
+
+    li.image:nth-child(2n) {
+      animation-name: shake1;
+      animation-iteration-count: infinite;
+      transform-origin: 50% 10%;
+      animation-duration: 300ms;
+    }
+
+    li.image:nth-child(2n-1) {
+      animation-name: shake2;
+      animation-iteration-count: infinite;
+      animation-direction: alternate;
+      transform-origin: 30% 5%;
+      animation-duration: 280ms;
+    }
+    li.image button {
+        opacity: 1;
+        width: 44px;
+        height: 44px;
+        background: #7f7b7b;
+        color: black;
+        z-index: 3;
+        border-radius: 50%;
+        border-width: 0px;
+        transform: translateX(-10px) translateY(-10px);
+        font-size: 35px;
+    }
+}
+
+@keyframes shake1 {
+  0% {
+    transform: rotate(-1deg);
+    animation-timing-function: ease-in;
+  }
+
+  50% {
+    transform: rotate(1.5deg);
+    animation-timing-function: ease-out;
+  }
+}
+
+@keyframes shake2 {
+  0% {
+    transform: rotate(1deg);
+    animation-timing-function: ease-in;
+  }
+
+  50% {
+    transform: rotate(-1.5deg);
+    animation-timing-function: ease-out;
+  }
+}
+
+
 </style>
 </head>
 <body>
@@ -390,13 +461,14 @@ window.customElements.define(
         this.imageTemplate = this.querySelector("ul#device-images li").cloneNode(true);
         this.imageTemplate.querySelector("input").remove();
         const imageButton = document.createElement("button");
-        imageButton.append("edit");
+        imageButton.append("-");
         this.imageTemplate.append(imageButton);
         this.imageTemplate.className = "image loading";
         this.disconnectButton = this.querySelector("#disconnect");
         console.log(this.disconnectButton)
         this.disconnectButton.addEventListener("click", this);
         this.className = "loading"; /* before images show up */
+        document.body.addEventListener("click", this);
     }
     set device(adevice) {
         this._device = adevice;
@@ -416,7 +488,11 @@ window.customElements.define(
             const button = imgLi.querySelector("button")
             button.dataset.imageName = imageMeta.name;
             button.addEventListener("click", this);
-            button.textContent = `Edit ${imageMeta.name}`;
+            /* longpresses */
+            button.addEventListener("pointerdown", this);
+            button.addEventListener("pointerup", this);
+            button.addEventListener("contextmenu", this);
+            button.textContent = `-`;
             this.imageList.append(imgLi);
             imageMeta.li = imgLi;
         }
@@ -435,12 +511,31 @@ window.customElements.define(
     async handleEvent(e) {
         if (e.type == "click") {
             if (e.target === this.disconnectButton) {
-                this.executeDisconnect();
+                this.executeDisconnect(e);
             } else if (e.target.dataset.imageName) {
-                this.clickImage(e.target);
+                // if we got a click event, it wasn't a longpress
+                if (this._waitingForClickTimeout) {
+                    clearTimeout(this._waitingForClickTimeout);
+                }
+                this.clickImage(e);
+            } else if (e.target == this.imageList && this.imageList.classList.contains("shaking")) {
+                this.imageList.classList.remove("shaking");
             }
         } else if (e.type == "change" && e.target == this.imageAddButton) {
                 this.addImage(e);
+        } else if (e.type == "pointerdown" && e.target.dataset.imageName) {
+            // if they tapped/clicked, we'll get a click event
+            // but if they hold down, we won't
+            // so we start a timeout, and then a click cancels it
+            // if the timeout fires, it's a longpress
+            const down = new Date().getTime();
+            this._waitingForClickTimeout = setTimeout(() => {
+                const duration = new Date().getTime() - down;
+                console.log("longpress", duration)
+                this.longpress(e);
+            }, 500);
+        } else if (e.type == "contextmenu" && e.target.dataset.imageName) {
+            e.preventDefault();
         }
     }
     async addImage(e) {
@@ -454,11 +549,18 @@ window.customElements.define(
             }
         }
     }
-    async executeDisconnect() {
+    async executeDisconnect(e) {
         console.log("execute disconnect");
+        e.preventDefault();
     }
-    async clickImage(button) {
-        console.log("click image", button);
+    async clickImage(e) {
+        console.log("click image", e.target);
+        e.preventDefault();
+        this.imageList.classList.remove("shaking");
+    }
+    async longpress(e) {
+        console.log("longpress on", e.target, this);
+        this.imageList.classList.add("shaking");
     }
 })
 
