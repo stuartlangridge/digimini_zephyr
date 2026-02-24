@@ -143,7 +143,7 @@ digimini-connected {
         top: 13vh;
         left: 35%;
         background: url(scanning-anim.svg) center center no-repeat;
-        backgroound-size: contain;
+        background-size: contain;
     }
 
     #disconnect {
@@ -160,6 +160,21 @@ digimini-connected {
         border-radius: 20px;
         height: 4vh;
         padding: 0 2vh;
+    }
+
+    #disconnect.disconnecting {
+        color: transparent;
+    }
+    #disconnect.disconnecting::after {
+        content: "";
+        height: 3vh;
+        width: 3vh;
+        background: url(scanning-anim.svg) center center no-repeat;
+        background-size: contain;
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translateX(-50%) translateY(-50%);
     }
 
     #device-images {
@@ -220,6 +235,10 @@ digimini-connected {
         place-items: center;
         content: "+";
         pointer-events: none;
+        transition: transform 150ms ease;
+    }
+    #device-images li.add:hover::after {
+        transform: scale(1.2);
     }
     #device-images li.add input {
         position: absolute;
@@ -385,6 +404,10 @@ class FakeBTLEManager {
         await new Promise(r => setTimeout(r, 1500));
         return true        
     }
+    async disconnect() {
+        await new Promise(r => setTimeout(r, 1500));
+        return true        
+    }
 }
 const btleManager = new FakeBTLEManager();
 
@@ -394,6 +417,7 @@ class Orchestrator {
         for (const [prop, value] of Object.entries(props)) {
             element[prop] = value;
         }
+        if (element.mount) element.mount();
         document.querySelector("main").className = elementName;
     }
 }
@@ -423,6 +447,7 @@ window.customElements.define(
         setTimeout(() => { this.button.className = state }, 150);
     }
     clickButton() {
+        console.log("click button", this.button)
         if (this.button.className == "awaiting-click") {
             this.transitionTo("scanning", this.scan);
         }
@@ -446,7 +471,7 @@ window.customElements.define(
             return;
         }
         console.log("got device", device);
-        this.transitionTo("connected", () => {
+        this.transitionTo("awaiting-click", () => {
             orchestrator.transitionTo("digimini-connected", {device})
         });
     }
@@ -489,13 +514,21 @@ window.customElements.define(
         this.disconnectButton = this.querySelector("#disconnect");
         console.log(this.disconnectButton)
         this.disconnectButton.addEventListener("click", this);
-        this.className = "loading"; /* before images show up */
         document.body.addEventListener("click", this);
+        this.mount()
+    }
+    mount() {
+        this.imageList.querySelectorAll("li.image").forEach(li => { 
+            li.remove(); 
+        });
+        this.className = "loading"; /* before images show up */
     }
     set device(adevice) {
         this._device = adevice;
-        this.displayDeviceName.textContent = this._device.name;
-        this.fetchImages();
+        if (adevice) {
+            this.displayDeviceName.textContent = this._device.name;
+            this.fetchImages();
+        }
     }
     async fetchImages() {
         for (const removeLi of Array.from(this.imageList.querySelector("li"))) {
@@ -574,6 +607,11 @@ window.customElements.define(
     async executeDisconnect(e) {
         console.log("execute disconnect");
         e.preventDefault();
+        this.disconnectButton.classList.add("disconnecting");
+        await btleManager.disconnect();
+        this.device = null;
+        this.disconnectButton.classList.remove("disconnecting");
+        orchestrator.transitionTo("digimini-connect", {})
     }
     async clickImage(e) {
         console.log("click image", e.target);
