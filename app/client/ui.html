@@ -249,9 +249,27 @@ digimini-connected {
         display: block;
         background: url(static-tv-static.gif) center center no-repeat;
         background-size: cover;
-    }        
+    }
+    #device-images li.image:not(.loading) button:hover::after {
+        content: "";
+        z-index: 4;
+        position: absolute;
+        inset: 0;
+        background: url(rubbish-bin.svg) center center no-repeat, rgba(0,0,0,0.6);
+        background-size: 50% 50%, 100% 100%;
+    }
+
+    #device-images li.image.deleting::after {
+        content: "";
+        position: absolute;
+        z-index: 5;
+        background: url(x.svg) center center no-repeat;
+        background-size: contain;
+        inset: 0;
+    }
 }
 
+/* long press edit mode */
 digimini-connected #device-images.shaking {
 
     overflow: visible;
@@ -362,6 +380,10 @@ class FakeBTLEManager {
         // this should be cached somewhere, but not in here; once it's returned
         await new Promise(r => setTimeout(r, 500));
         return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAACCAIAAAAW4yFwAAAACXBIWXMAAC4jAAAuIwF4pT92AAAAEElEQVQI12P4uI2fiYGBAQALNgG5gDAvrQAAAABJRU5ErkJggg==";
+    }
+    async deleteImage(imageName) {
+        await new Promise(r => setTimeout(r, 1500));
+        return true        
     }
 }
 const btleManager = new FakeBTLEManager();
@@ -557,10 +579,23 @@ window.customElements.define(
         console.log("click image", e.target);
         e.preventDefault();
         this.imageList.classList.remove("shaking");
+        this.deleteImage(e.target, e.target.dataset.imageName)
     }
     async longpress(e) {
         console.log("longpress on", e.target, this);
         this.imageList.classList.add("shaking");
+    }
+    async deleteImage(button, imageName) {
+        const li = button.closest("li");
+        li.classList.add("deleting");
+        await btleManager.deleteImage(imageName);
+        // animate disappearance
+        const anim = li.animate([
+            {transform: "scale(1)"},
+            {transform: "scale(0)"}
+        ], {duration: 150})
+        anim.onfinish = () => { li.remove(); }
+        anim.play()
     }
 })
 
