@@ -45,6 +45,12 @@
     <button id="sendTextBtn" disabled>Send text</button>
   </section>
 
+<aside id="progressContainer" hidden>
+  <label>Sending progress:</label><br>
+  <progress id="progressBar" value="0" max="100"></progress>
+  <span id="progressText">0%</span>
+</aside>
+
   <section>
     <h1>Send image</h1>
     <label>Choose image:</label><br>
@@ -62,11 +68,6 @@
   </section>
 </main>
 
-<aside id="progressContainer" hidden>
-  <label>Sending progress:</label><br>
-  <progress id="progressBar" value="0" max="100"></progress>
-  <span id="progressText">0%</span>
-</aside>
 <script src="btle.js"></script>
 <script src="image.js"></script>
 <script>

@@ -198,6 +198,7 @@ digimini-connected {
     #device-images li {
         width: 100%;
         position: relative;
+        transition: filter 0.2s ease;
     }
     #device-images li:has(img) {
         background: var(--white-transparent); /* polaroid border for images */
@@ -257,7 +258,7 @@ digimini-connected {
         background: transparent;
         display: block;
         user-select: none;
-    }        
+    }
     #device-images li.image.loading::after {
         content: "";
         position: absolute;
@@ -268,6 +269,11 @@ digimini-connected {
         display: block;
         background: url(static-tv-static.gif) center center no-repeat;
         background-size: cover;
+    }
+    #device-images li.image.uploading {
+        mask-image: linear-gradient(to bottom, black calc(1% * var(--pc)), 
+            rgba(0, 0, 0, 0.2) calc(1% * var(--pc)));
+        filter: grayscale(1);
     }
     #device-images li.image:not(.loading) button:hover::after {
         content: "";
@@ -379,6 +385,7 @@ digimini-connected #device-images.shaking {
     </digimini-connected>
 </main>
 
+<script src="ui_image.js"></script>
 <script>
 
 class FakeBTLEManager {
@@ -402,11 +409,18 @@ class FakeBTLEManager {
     }
     async deleteImage(imageName) {
         await new Promise(r => setTimeout(r, 1500));
-        return true        
+        return true
     }
     async disconnect() {
         await new Promise(r => setTimeout(r, 1500));
-        return true        
+        return true
+    }
+    async send(data_565, progress_cb) {
+        for (let i=0; i<100; i++) {
+            await new Promise(r => setTimeout(r, 30));
+            progress_cb(i / 100);
+        }
+        return true
     }
 }
 const btleManager = new FakeBTLEManager();
@@ -530,6 +544,20 @@ window.customElements.define(
             this.fetchImages();
         }
     }
+
+    getDisplayImageInLoadingState(name) {
+        const imgLi = this.imageTemplate.cloneNode(true);
+        const button = imgLi.querySelector("button")
+        button.dataset.imageName = name;
+        button.addEventListener("click", this);
+        /* longpresses */
+        button.addEventListener("pointerdown", this);
+        button.addEventListener("pointerup", this);
+        button.addEventListener("contextmenu", this);
+        button.textContent = `-`;
+        return imgLi;
+    }
+
     async fetchImages() {
         for (const removeLi of Array.from(this.imageList.querySelector("li"))) {
             if (removeLi.className == "add") continue; // keep add button
@@ -538,20 +566,13 @@ window.customElements.define(
 
         const imagesMeta = await btleManager.getImagesMeta();
         this.classList.remove("loading"); /* images now showing up */
+
+        // create "loading" placeholder images for each of the images
         for (const imageMeta of imagesMeta) {
-            const imgLi = this.imageTemplate.cloneNode(true);
-            const button = imgLi.querySelector("button")
-            button.dataset.imageName = imageMeta.name;
-            button.addEventListener("click", this);
-            /* longpresses */
-            button.addEventListener("pointerdown", this);
-            button.addEventListener("pointerup", this);
-            button.addEventListener("contextmenu", this);
-            button.textContent = `-`;
+            const imgLi = this.getDisplayImageInLoadingState(imageMeta.name);
             this.imageList.append(imgLi);
             imageMeta.li = imgLi;
         }
-
 
         // get the actual images
         // we can't Promise.race these because we only have one btle line
@@ -598,8 +619,23 @@ window.customElements.define(
             for (const f of e.target.files) {
                 const fileReader = new FileReader(f);
                 fileReader.readAsDataURL(f);
-                fileReader.addEventListener("load", function () {
-                    console.log(f, this.result.substr(0,30));
+                fileReader.addEventListener("load", async () => {
+                    const image80x160_565 = await convertDataURL(fileReader.result)
+                    const displayImage = new Image();
+                    displayImage.src = URL.createObjectURL(
+                        new Blob([image80x160_565.as_png], {type: "image/png"})
+                    );
+                    const imgLi = this.getDisplayImageInLoadingState("noname");
+                    imgLi.append(displayImage);
+                    this.imageList.append(imgLi);
+                    imgLi.classList.add("uploading");
+                    imgLi.style.setProperty("--pc", 35);
+                    imgLi.classList.remove("loading");
+                    console.log("now send the data")
+                    await btleManager.send(image80x160_565.as_565, (progress_frac) => {
+                        imgLi.style.setProperty("--pc", progress_frac * 100);
+                    });
+                    imgLi.classList.remove("uploading");
                 });
             }
         }
