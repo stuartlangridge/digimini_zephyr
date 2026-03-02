@@ -4,3 +4,5 @@ micropython
 micropython.zip
 micropython-lib/
 micropython-built.zip
+_build
+node_modules

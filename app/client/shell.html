@@ -1,0 +1,147 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Digimini companion app</title>
+<style>
+/* inspired by https://dribbble.com/shots/20031358-Connect-devices-on-mobile */
+:root {
+    /* colour palette from coolors.co */
+    --white: #eff8e2; /* honeydew */
+    --white-transparent: #eff8e255; /* honeydew */
+    --light: #b287a3; /* dusty mauve */
+    --medium: #475b5a; /* granite */
+    --dark: #23022e; /* dark amethyst */
+    --highlight: #bb4430; /* tomato jam */
+    --green: #6afebe;
+}
+@media (width <= 650px) {
+    body {
+        width: 100vw;
+        height: 100vh;
+        margin: 0;
+        padding: 0;
+    }
+    main {
+        width: 100vw;
+        height: 100vh;
+        margin: 0;
+        padding: 0;
+    }
+}
+@media (width > 650px) {
+    /* display fake "mobile" view */
+    body {
+        display: grid;
+        align-items: center;
+        justify-content: center;
+        background: #eee;
+    }
+    main {
+        height: 80vh;
+        aspect-ratio: 9 / 19.5;
+        border-radius: 4vh;
+    }
+}
+main {
+    background: linear-gradient(to bottom, var(--medium) 20%, var(--dark) 60%);
+    color: var(--white);
+    font-family: system-ui;
+    position: relative;
+}
+
+h1 {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 5vh;
+    font-size: 2vh;
+    text-align: center;
+    font-weight: normal;
+}
+
+
+main > * {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 250ms ease;
+}
+main.digimini-connect digimini-connect,
+main.digimini-connected digimini-connected {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+
+
+</style>
+</head>
+<body>
+<main class="digimini-connect">
+    <digimini-connect>
+    </digimini-connect>
+
+    <digimini-connected>
+    </digimini-connected>
+</main>
+
+<script src="./static/scripts/ui_image.js"></script>
+<script>
+
+class FakeBTLEManager {
+    async getDevice() {
+        await new Promise(r => setTimeout(r, 300)); // fake a delay
+        return {name: "mydigimini"}
+    }
+    async getImagesMeta() {
+        // return a list of image names
+        await new Promise(r => setTimeout(r, 1500));
+        return [
+            {name: "im1"},
+            {name: "im2"},
+            {name: "im3"},
+        ]
+    }
+    async getImageData(imageName) {
+        // this should be cached somewhere, but not in here; once it's returned
+        await new Promise(r => setTimeout(r, 500));
+        return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAACCAIAAAAW4yFwAAAACXBIWXMAAC4jAAAuIwF4pT92AAAAEElEQVQI12P4uI2fiYGBAQALNgG5gDAvrQAAAABJRU5ErkJggg==";
+    }
+    async deleteImage(imageName) {
+        await new Promise(r => setTimeout(r, 1500));
+        return true
+    }
+    async disconnect() {
+        await new Promise(r => setTimeout(r, 1500));
+        return true
+    }
+    async send(data_565, progress_cb) {
+        for (let i=0; i<100; i++) {
+            await new Promise(r => setTimeout(r, 30));
+            progress_cb(i / 100);
+        }
+        return true
+    }
+}
+const btleManager = new FakeBTLEManager();
+
+class Orchestrator {
+    transitionTo(elementName, props) {
+        const element = document.querySelector(elementName);
+        for (const [prop, value] of Object.entries(props)) {
+            element[prop] = value;
+        }
+        if (element.mount) element.mount();
+        document.querySelector("main").className = elementName;
+    }
+}
+const orchestrator = new Orchestrator();
+
+
+
+
+</script>
+</body>
+</html>

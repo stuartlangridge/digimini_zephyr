@@ -1,0 +1,399 @@
+        <form>
+            <h1>Connected to <output>...</output></h1>
+            <ul id="device-images">
+                <li class="add">
+                    <input type="file" id="add-image" 
+                     accept="image/*" value="add image"
+                     multiple>
+                </li>
+            </ul>
+            <button id="disconnect">Disconnect</button>
+        </form>
+
+<script>
+window.customElements.define(
+    'digimini-connected', class extends HTMLElement {
+    constructor() {
+        super();
+        this._device = null;
+    }
+    connectedCallback() {
+        this.displayDeviceName = this.querySelector("h1 output");
+        this.imageList = this.querySelector("ul#device-images");
+        this.imageAddButton = this.querySelector("ul#device-images li #add-image");
+        this.imageAddButton.addEventListener("change", this);
+        this.imageTemplate = this.querySelector("ul#device-images li").cloneNode(true);
+        this.imageTemplate.querySelector("input").remove();
+        const imageButton = document.createElement("button");
+        imageButton.append("-");
+        this.imageTemplate.append(imageButton);
+        this.imageTemplate.className = "image loading";
+        this.disconnectButton = this.querySelector("#disconnect");
+        console.log(this.disconnectButton)
+        this.disconnectButton.addEventListener("click", this);
+        document.body.addEventListener("click", this);
+        this.mount()
+    }
+    mount() {
+        this.imageList.querySelectorAll("li.image").forEach(li => { 
+            li.remove(); 
+        });
+        this.className = "loading"; /* before images show up */
+    }
+    set device(adevice) {
+        this._device = adevice;
+        if (adevice) {
+            this.displayDeviceName.textContent = this._device.name;
+            this.fetchImages();
+        }
+    }
+
+    getDisplayImageInLoadingState(name) {
+        const imgLi = this.imageTemplate.cloneNode(true);
+        const button = imgLi.querySelector("button")
+        button.dataset.imageName = name;
+        button.addEventListener("click", this);
+        /* longpresses */
+        button.addEventListener("pointerdown", this);
+        button.addEventListener("pointerup", this);
+        button.addEventListener("contextmenu", this);
+        button.textContent = `-`;
+        return imgLi;
+    }
+
+    async fetchImages() {
+        for (const removeLi of Array.from(this.imageList.querySelector("li"))) {
+            if (removeLi.className == "add") continue; // keep add button
+            removeLi.remove();
+        }
+
+        const imagesMeta = await btleManager.getImagesMeta();
+        this.classList.remove("loading"); /* images now showing up */
+
+        // create "loading" placeholder images for each of the images
+        for (const imageMeta of imagesMeta) {
+            const imgLi = this.getDisplayImageInLoadingState(imageMeta.name);
+            this.imageList.append(imgLi);
+            imageMeta.li = imgLi;
+        }
+
+        // get the actual images
+        // we can't Promise.race these because we only have one btle line
+        for (const imageMeta of imagesMeta) {
+            const imageData = await btleManager.getImageData(imageMeta.name);
+            const img = document.createElement("img");
+            img.src = imageData;
+            imageMeta.li.append(img);
+            imageMeta.li.classList.remove("loading");
+        }
+    }
+    async handleEvent(e) {
+        if (e.type == "click") {
+            if (e.target === this.disconnectButton) {
+                this.executeDisconnect(e);
+            } else if (e.target.dataset.imageName) {
+                // if we got a click event, it wasn't a longpress
+                if (this._waitingForClickTimeout) {
+                    clearTimeout(this._waitingForClickTimeout);
+                }
+                this.clickImage(e);
+            } else if (e.target == this.imageList && this.imageList.classList.contains("shaking")) {
+                this.imageList.classList.remove("shaking");
+            }
+        } else if (e.type == "change" && e.target == this.imageAddButton) {
+                this.addImage(e);
+        } else if (e.type == "pointerdown" && e.target.dataset.imageName) {
+            // if they tapped/clicked, we'll get a click event
+            // but if they hold down, we won't
+            // so we start a timeout, and then a click cancels it
+            // if the timeout fires, it's a longpress
+            const down = new Date().getTime();
+            this._waitingForClickTimeout = setTimeout(() => {
+                const duration = new Date().getTime() - down;
+                console.log("longpress", duration)
+                this.longpress(e);
+            }, 500);
+        } else if (e.type == "contextmenu" && e.target.dataset.imageName) {
+            e.preventDefault();
+        }
+    }
+    async addImage(e) {
+        if (e.target.files.length > 0) {
+            for (const f of e.target.files) {
+                const fileReader = new FileReader(f);
+                fileReader.readAsDataURL(f);
+                fileReader.addEventListener("load", async () => {
+                    const image80x160_565 = await convertDataURL(fileReader.result)
+                    const displayImage = new Image();
+                    displayImage.src = URL.createObjectURL(
+                        new Blob([image80x160_565.as_png], {type: "image/png"})
+                    );
+                    const imgLi = this.getDisplayImageInLoadingState("noname");
+                    imgLi.append(displayImage);
+                    this.imageList.append(imgLi);
+                    imgLi.classList.add("uploading");
+                    imgLi.style.setProperty("--pc", 35);
+                    imgLi.classList.remove("loading");
+                    console.log("now send the data")
+                    await btleManager.send(image80x160_565.as_565, (progress_frac) => {
+                        imgLi.style.setProperty("--pc", progress_frac * 100);
+                    });
+                    imgLi.classList.remove("uploading");
+                });
+            }
+        }
+    }
+    async executeDisconnect(e) {
+        console.log("execute disconnect");
+        e.preventDefault();
+        this.disconnectButton.classList.add("disconnecting");
+        await btleManager.disconnect();
+        this.device = null;
+        this.disconnectButton.classList.remove("disconnecting");
+        orchestrator.transitionTo("digimini-connect", {})
+    }
+    async clickImage(e) {
+        console.log("click image", e.target);
+        e.preventDefault();
+        this.imageList.classList.remove("shaking");
+        this.deleteImage(e.target, e.target.dataset.imageName)
+    }
+    async longpress(e) {
+        console.log("longpress on", e.target, this);
+        this.imageList.classList.add("shaking");
+    }
+    async deleteImage(button, imageName) {
+        const li = button.closest("li");
+        li.classList.add("deleting");
+        await btleManager.deleteImage(imageName);
+        // animate disappearance
+        const anim = li.animate([
+            {transform: "scale(1)"},
+            {transform: "scale(0)"}
+        ], {duration: 150})
+        anim.onfinish = () => { li.remove(); }
+        anim.play()
+    }
+})
+</script>
+
+<style>
+digimini-connected {
+
+    &.loading::after {
+        content: "";
+        width: 100px;
+        height: 100px;
+        position: absolute;
+        top: 13vh;
+        left: 35%;
+        background: url(static/images/scanning-anim.svg) center center no-repeat;
+        background-size: contain;
+    }
+
+    #disconnect {
+        position: absolute;
+        top: 5vh;
+        left: 50%;
+        transform: translateX(-50%);
+        margin: 1vh 0;
+        border: 2px solid var(--green);
+        color: var(--green);
+        box-shadow: 4px 4px 4px rgba(0, 0, 0, 0.5);
+        background: transparent;
+        font-size: 2vh;
+        border-radius: 20px;
+        height: 4vh;
+        padding: 0 2vh;
+    }
+
+    #disconnect.disconnecting {
+        color: transparent;
+    }
+    #disconnect.disconnecting::after {
+        content: "";
+        height: 3vh;
+        width: 3vh;
+        background: url(static/images/scanning-anim.svg) center center no-repeat;
+        background-size: contain;
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translateX(-50%) translateY(-50%);
+    }
+
+    #device-images {
+        position: absolute;
+        top: 12vh;
+        left: 0;
+        right: 0;
+        bottom: 5vh;
+        overflow-y: auto;
+        overflow-x: visible;
+        list-style: none;
+        margin: 0 1vh;
+        padding: 0;
+        width: calc(100% - 1vh - 1vh);
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+        grid-auto-rows: min-content;
+        box-sizing: border-box;
+    }
+    #device-images li {
+        width: 100%;
+        position: relative;
+        transition: filter 0.2s ease;
+    }
+    #device-images li:has(img) {
+        background: var(--white-transparent); /* polaroid border for images */
+    }
+    #device-images li::before { /* set box aspect ratio */
+        content: "";
+        display: inline-block;
+        width: 1px;
+        height: 0;
+        vertical-align: bottom; /* not text baseline; no gap at bottom */
+        padding-bottom: calc(100% * 2); /* 1:2 */
+    }
+    #device-images li img {
+        position: absolute;
+        width: calc(100% - 2px);
+        left: 1px;
+        top: 50%;
+        transform: translateY(-50%);
+        aspect-ratio: 1/2;
+        object-fit: contain;
+        display: block;
+        pointer-events: none;
+    }
+    #device-images li.add  {
+        border: 2px solid var(--green);
+        color: var(--green);
+        box-shadow: 4px 4px 4px rgba(0, 0, 0, 0.5);
+        border-radius: 8px;
+        font-size: 8vw;
+    }
+    #device-images li.add::after {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        content: "+";
+        pointer-events: none;
+        transition: transform 150ms ease;
+    }
+    #device-images li.add:hover::after {
+        transform: scale(1.2);
+    }
+    #device-images li.add input {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        opacity: 0;
+    }
+    #device-images li.image button {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        left: 0;
+        top: 0;
+        background: transparent;
+        display: block;
+        user-select: none;
+    }
+    #device-images li.image.loading::after {
+        content: "";
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        left: 0;
+        top: 0;
+        display: block;
+        background: url(static/images/static-tv-static.gif) center center no-repeat;
+        background-size: cover;
+    }
+    #device-images li.image.uploading {
+        mask-image: linear-gradient(to bottom, black calc(1% * var(--pc)), 
+            rgba(0, 0, 0, 0.2) calc(1% * var(--pc)));
+        filter: grayscale(1);
+    }
+    #device-images li.image:not(.loading) button:hover::after {
+        content: "";
+        z-index: 4;
+        position: absolute;
+        inset: 0;
+        background: url(static/images/rubbish-bin.svg) center center no-repeat, rgba(0,0,0,0.6);
+        background-size: 50% 50%, 100% 100%;
+    }
+
+    #device-images li.image.deleting::after {
+        content: "";
+        position: absolute;
+        z-index: 5;
+        background: url(static/images/x.svg) center center no-repeat;
+        background-size: contain;
+        inset: 0;
+    }
+}
+
+/* long press edit mode */
+digimini-connected #device-images.shaking {
+
+    overflow: visible;
+
+    li.image:nth-child(2n) {
+      animation-name: shake1;
+      animation-iteration-count: infinite;
+      transform-origin: 50% 10%;
+      animation-duration: 300ms;
+    }
+
+    li.image:nth-child(2n-1) {
+      animation-name: shake2;
+      animation-iteration-count: infinite;
+      animation-direction: alternate;
+      transform-origin: 30% 5%;
+      animation-duration: 280ms;
+    }
+    li.image button {
+        opacity: 1;
+        width: 44px;
+        height: 44px;
+        background: #7f7b7b;
+        color: black;
+        z-index: 3;
+        border-radius: 50%;
+        border-width: 0px;
+        transform: translateX(-10px) translateY(-10px);
+        font-size: 35px;
+    }
+}
+
+@keyframes shake1 {
+  0% {
+    transform: rotate(-1deg);
+    animation-timing-function: ease-in;
+  }
+
+  50% {
+    transform: rotate(1.5deg);
+    animation-timing-function: ease-out;
+  }
+}
+
+@keyframes shake2 {
+  0% {
+    transform: rotate(1deg);
+    animation-timing-function: ease-in;
+  }
+
+  50% {
+    transform: rotate(-1.5deg);
+    animation-timing-function: ease-out;
+  }
+}
+
+</style>

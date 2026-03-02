@@ -18,6 +18,6 @@ recho () {
 }
 D=$(readlink -f $(dirname "$0"))
 
-cecho "Running client webserver: go to http://localhost:5173"
-cd "$D"/app/client/_build
-python -m http.server -b 0.0.0.0 5173
+cecho "Building client"
+cd "$D"/app/client
+node build.js
