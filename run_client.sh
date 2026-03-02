@@ -20,4 +20,4 @@ D=$(readlink -f $(dirname "$0"))
 
 cecho "Running client webserver: go to http://localhost:5173"
 cd "$D"/app/client
-python -m http.server 5173
+python -m http.server -b 0.0.0.0 5173
