@@ -66,6 +66,12 @@ else
   mpremote fs cp app/server/sysfont.py :/flash/lib/
 fi
 
+if mpremote fs ls /flash/ | grep images/ > /dev/null; then
+  echo Already got images folder
+else
+  mpremote mkdir /flash/images
+fi
+
 echo For now we simply run our app without actually storing it on the device
 echo Eventually this will package it up, but this is ok for iterating
 

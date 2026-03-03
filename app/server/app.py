@@ -82,6 +82,10 @@ class Checksum:
 
 last_sent_cs = None
 
+def uuid4():
+    p = ["%04x" % random.randint(0,65536) for i in range(8)]
+    return f"{p[0]}{p[1]}-{p[2]}-{p[3]}-{p[4]}-{p[5]}{p[6]}{p[7]}"
+
 async def periodic_checksum_sender():
     global last_sent_cs
     while True:
@@ -176,7 +180,8 @@ async def incoming_cmd_handler(channel, data):
         if not checksum.started():
             print("Error: tried to end_data when there is no transmission")
             return
-        print("data ends (do whatever with file now)")
+        filename = f"/flash/images/{uuid4()}"
+        print(f"data ends (do whatever with file now, {filename})")
         # reset the checksum to unstarted
         checksum.reset()
     elif parts[1] == "request_cs":
@@ -184,8 +189,17 @@ async def incoming_cmd_handler(channel, data):
             cs_str = f"dmcs:{checksum.get()}"
             broker.publish("request_send_us2client", cs_str)
             print("On-demand CS sent")
-    elif parts[1] == "get_img_meta":
-        broker.publish("request_send_us2client", "a,b,c,d,e,f")
+    elif parts[1] == "get_image_meta":
+        broker.publish("request_send_us2client", "dmres:image_meta:a,b")
+    elif parts[1] == "get_image":
+        filename = parts[2]
+        imagedata = [f"{idx}{filename*5}" for idx in range(1,10)]
+        total = sum([len(d) for d in imagedata])
+        cs = "xxxxx"
+        broker.publish("request_send_us2client", f"dmres:image_data:{total}")
+        for block in imagedata:
+            broker.publish("request_send_us2client", block)
+        broker.publish("request_send_us2client", f"dmres:complete_image_data:{cs}")
 
 # Add global counters for debugging
 received_blocks = 0

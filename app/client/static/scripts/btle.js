@@ -47,17 +47,22 @@ class BTLECachingInterface {
         const results = await this.waitFor({
             btle_manager_event: "btle-server-sends",
             method: this._btle.send_dmcmd,
-            args: ['get_img_meta']
+            args: ['get_image_meta']
         })
         const decoder = new TextDecoder();
         const text = decoder.decode(results.value);
-        // response to dmcmd:get_image_meta is filename,filename,filename
+        // response to dmcmd:get_image_meta is dmres:image_meta:filename,filename,filename
         // the filenames will be uuids, but that's not important
-        const filenames = text.split(",").map(filename => { return {name: filename} });
+        if (!text.startsWith("dmres:image_meta:")) {
+            console.log("WARNING, unexpected response to get_image_meta", text);
+            return [];
+        }
+        const filenames = text.split(":")[2].split(",").map(filename => { return {name: filename} });
         return filenames;
     }
     async getImageData(imageName) {
-        throw new Error(`Not implemented (getImageData) ${imageName}`);
+        const result = await this._btle.receive_from_command(`get_image:${imageName}`);
+        console.log("got back imagedata", result);
         /*
         // this should be cached somewhere, but not in here; once it's returned
         await new Promise(r => setTimeout(r, 500));
@@ -166,6 +171,9 @@ class BTLEManager {
         if (this.bt && this.blockSender) {
             this.blockSender.onServerSends(event.target.value);
         }
+        if (this.bt && this.blockReceiver) {
+            this.blockReceiver.onServerSends(event.target.value);
+        }
         this._fire("btle-server-sends", {value: event.target.value})
     }
     async disconnect() {
@@ -209,6 +217,26 @@ class BTLEManager {
         return {elapsed_ms: new Date().getTime() - start_send_time,
             bytes_transferred: data.length}
     }
+    async receive_from_command(cmd) {
+        if (!this.connected) {
+            console.log("Can't receive, not connected");
+            return;
+        }
+        this._status("Beginning receive...");
+        const start_receive_time = new Date().getTime();
+        this.blockReceiver = new BTLEBlockReceiver({
+            cmd,
+            handlers: {
+                success: this._receiveSuccess.bind(this),
+                failure: this._receiveFailure.bind(this),
+                progress: this._receiveProgress.bind(this)
+            },
+            bt: this.bt
+        });
+        const received = await this.blockReceiver.start();
+        return {elapsed_ms: new Date().getTime() - start_receive_time,
+            received}
+    }
 
     async send_dmcmd(cmd) {
         const dmcmd = `dmcmd:${cmd}`;
@@ -234,7 +262,89 @@ class BTLEManager {
     }
     async _sendProgress(progress, elapsed_ms) {
         console.log("blocksender", {progress, elapsed_ms})
-        this._fire("btle-progress", {progress, elapsed_ms});
+        this._fire("btle-progress-send", {progress, elapsed_ms});
+    }
+    async _receiveSuccess(elapsed_ms) {
+        console.log("blocksender", "success");
+        this.blockReceiver = null;
+        this._status("Received successfully");
+    }
+    async _receiveFailure() {
+        console.log("blocksender", "failure");
+        this.blockReceiver = null;
+        this._status("Receive failed");
+    }
+    async _receiveProgress(progress, elapsed_ms) {
+        console.log("blockreceiver", {progress, elapsed_ms})
+        this._fire("btle-progress-receive", {progress, elapsed_ms});
+    }
+}
+
+class BTLEBlockReceiver {
+    constructor(options) {
+        this.bt = options.bt;
+        this.handlers = options.handlers;
+        this.cmd = options.cmd;
+        this.blocks = [];
+        this.complete = false;
+    }
+
+    async start() {
+        // returns the received thing
+        // kick off the send with a dmcmd:get_image:(filename)
+        await this.bt.manager.send_dmcmd(this.cmd);
+        // and sit in a loop until it's done or we hit the timeout
+        let total_time = 0;
+        const loop_time = 250;
+        const MAX_TOTAL_TIME_RECEIVE = 30000;
+        while (true) {
+            await new Promise(r => setTimeout(r, loop_time));
+            if (this.complete) break;
+            total_time += loop_time;
+            if (total_time > MAX_TOTAL_TIME_RECEIVE) {
+                console.log("ABORT ABORT ABORT RECEIVE");
+                break;
+            }
+        }
+        if (this.complete) {
+            console.log("completed transfer");
+            // glue together blocks and return
+            let totalLength = 0;
+            this.blocks.forEach(b => { totalLength += b.buffer.byteLength });
+            let tmp = new Uint8Array(totalLength);
+            let pointer = 0;
+            this.blocks.forEach(b => {
+                tmp.set(new Uint8Array(b.buffer), pointer);
+                pointer += b.buffer.byteLength;
+            });
+            return tmp;
+        }
+        return null;
+    }
+
+    async onServerSends(data) {
+        // digimini will break up the image into ~240 byte packets
+        // and then send a "dmres:start_image_data:(total-size)" packet
+        // then all the packets
+        // then a "dmres:complete_image_data:(checksum)" packet
+        
+        // try decoding it as text; if it doesn't work, no problem
+        let text;
+        try {
+            const decoder = new TextDecoder();
+            text = decoder.decode(data);
+        } catch(e) {}
+        if (text && text.startsWith('dmres:image_data:')) {
+            const parts = text.split(":");
+            this.expected_size = parseInt(parts[2]);
+        } else if (text && text.startsWith('dmres:complete_image_data:')) {
+            const parts = text.split(":");
+            this.expected_checksum = parseInt(parts[2]);
+            this.complete = true;
+        } else {
+            this.blocks.push(data);
+            console.log("got server data block", this.blocks.length);
+        }
     }
 }
 

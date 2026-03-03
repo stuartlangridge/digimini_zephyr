@@ -40,14 +40,14 @@ Aborts the current open data transmission; the device should discard all sent da
 
 Sent after the last block is sent and its checksum acknowledged correctly, to indicate that both sides know that the transmission completed successfully.
 
-## `dmcmd:get_image_meta`
+## `dmcmd:get_img_meta`
 
 Sent on client2devicecmd to prompt getting the list of image metadata. The device responds with a single `dmres:image_meta:a,b,c,d,e,f` value where a, b, etc are filenames
 on the device. (These are guaranteed to be globally unique; the receiving app can cache
 any future fetched image data with these names indefinitely and so not need to re-fetch it.)
 FIXME: using uuids for filenames, which we have to to ensure global cacheability, means that we can only put 6 filenames in a single dmres:image_meta. If a digimini can hold more than that (which it can) then we need a better approach for this.
 
-## `dmcmd:send_image:(filename)`
+## `dmcmd:get_image:(filename)`
 
-Sent on client2devicecmd to prompt getting the data for an image currently stored on the device. The device responds with `dmres:send_image_data:(bytecount)`, then pure data packets, then `dmres:complete_image_data:(checksum)` on the device2client channel.
+Sent on client2devicecmd to prompt getting the data for an image currently stored on the device. The device responds with `dmres:image_data:(bytecount)`, then pure data packets, then `dmres:complete_image_data:(checksum)` on the device2client channel.
 
