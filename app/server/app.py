@@ -182,6 +182,8 @@ async def incoming_cmd_handler(channel, data):
             cs_str = f"dmcs:{checksum.get()}"
             broker.publish("request_send_us2client", cs_str)
             print("On-demand CS sent")
+    elif parts[1] == "get_images_meta":
+        broker.publish("request_send_us2client", "a,b,c")
 
 # Add global counters for debugging
 received_blocks = 0

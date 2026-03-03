@@ -58,7 +58,7 @@ window.customElements.define(
             this.transitionTo("awaiting-click");
             return;
         }
-        console.log("got device", device);
+        console.log("got device", device, device.name);
         this.transitionTo("awaiting-click", () => {
             orchestrator.transitionTo("digimini-connected", {device})
         });

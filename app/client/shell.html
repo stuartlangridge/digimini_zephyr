@@ -88,6 +88,7 @@ main.digimini-connected digimini-connected {
 </main>
 
 <script src="./static/scripts/ui_image.js"></script>
+<script src="./static/scripts/btle.js"></script>
 <script>
 
 class FakeBTLEManager {
@@ -125,7 +126,7 @@ class FakeBTLEManager {
         return true
     }
 }
-const btleManager = new FakeBTLEManager();
+const btleManager = new BTLECachingInterface();
 
 class Orchestrator {
     transitionTo(elementName, props) {
@@ -139,8 +140,9 @@ class Orchestrator {
 }
 const orchestrator = new Orchestrator();
 
-
-
+const loadedAt = document.createElement("p");
+loadedAt.append(`loaded at: ${new Date().toISOString()}`);
+document.body.append(loadedAt);
 
 </script>
 </body>

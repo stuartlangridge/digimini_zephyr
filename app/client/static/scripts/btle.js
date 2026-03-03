@@ -1,4 +1,106 @@
 
+class BTLECachingInterface {
+    /* 
+    lets you call a function and await it rather than being driven by events
+    caches images in localstorage
+    */
+    constructor() {
+        this._btle = new BTLEManager({
+            uuids: {
+                service: "D191D191-F070-51DE-C0DE-B1EA550C1A7E".toLowerCase(),
+                us2server_cmd: "D191D191-F070-FEED-1DEA-B1EA550C1A7E".toLowerCase(),
+                us2server_data: "D191D191-F070-FEED-DA7A-B1EA550C1A7E".toLowerCase(),
+                server2us: "D191D191-F070-ACCE-55E5-B1EA550C1A7E".toLowerCase(),
+            }
+        });
+    }
+
+    waitFor(options) {
+        /* Pass options dict that looks like: {
+            btle_manager_event: "btle-something", // this is the event that Manager fires
+            method: this._btle.connect // this is what we call on Manager
+            args: [list of, args to pass, to method],
+            finalise: (detail) => { } // called with event.detail to alter it
+        } */
+        return new Promise((resolve, reject) => {
+            // when the relevant event fires, return from waitFor with its detail
+            const listener = event => {
+                document.removeEventListener(options.btle_manager_event, listener);
+                let detail = event.detail;
+                if (options.finalise) detail = options.finalise(detail);
+                resolve(detail);
+            }
+            document.addEventListener(options.btle_manager_event, listener);
+            // and call the actual function in question
+            options.method.call(this._btle, ...(options.args || [])).catch(e => { reject(e); });
+        })
+    }
+
+    async getDevice(options) {
+        return this.waitFor({
+            btle_manager_event: "btle-connect",
+            method: this._btle.connect, 
+            args: [options]
+        });
+    }
+    async getImagesMeta() {
+        const dmcmd = `dmcmd:get_images_meta`;
+        console.log(`Sending dmcmd "${dmcmd}"`);
+        const bytes = new TextEncoder().encode(dmcmd);
+        try {
+            await this._btle.bt.chars.us2server_cmd.writeValue(bytes);
+            console.log(`Sent dmcmd (${bytes.length} bytes)`);
+        } catch(err) {
+            console.error(`Send error for ${dmcmd}`, err);
+        }
+        /*
+        // return a list of image names
+        await new Promise(r => setTimeout(r, 1500));
+        return [
+            {name: "im1"},
+            {name: "im2"},
+            {name: "im3"},
+        ]
+        */
+    }
+    async getImageData(imageName) {
+        return this.waitFor({
+            btle_manager_event: "btle-connect",
+            method: this._btle.connect, 
+            args: options
+        });
+        throw new Error(`Not implemented (getImageData)`);
+        /*
+        // this should be cached somewhere, but not in here; once it's returned
+        await new Promise(r => setTimeout(r, 500));
+        return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAACCAIAAAAW4yFwAAAACXBIWXMAAC4jAAAuIwF4pT92AAAAEElEQVQI12P4uI2fiYGBAQALNgG5gDAvrQAAAABJRU5ErkJggg==";
+        */
+    }
+    async deleteImage(imageName) {
+        throw new Error(`Not implemented (deleteImage)`);
+        /*
+        await new Promise(r => setTimeout(r, 1500));
+        return true
+        */
+    }
+    async disconnect() {
+        return this.waitFor({
+            btle_manager_event: "btle-disconnect",
+            method: this._btle.disconnect
+        });
+    }
+    async send(data_565, progress_cb) {
+        throw new Error(`Not implemented (send)`);
+        /*
+        for (let i=0; i<100; i++) {
+            await new Promise(r => setTimeout(r, 30));
+            progress_cb(i / 100);
+        }
+        return true
+        */
+    }
+}
+
 class BTLEManager {
     constructor(options) {
         this.uuids = options.uuids;
@@ -58,11 +160,12 @@ class BTLEManager {
             await new Promise(r => setTimeout(r, 800));
             this._status("Connected");
             this.connected = true;
-            this._fire("btle-connect", {});
+            this._fire("btle-connect", device);
         } catch (err) {
             this._status(`Connection failed: ${err.message || err}`, true);
             console.error("Connect error:", err);
             this.disconnect();
+            throw err;
         }
     }
     async _unexpectedDisconnect() {
@@ -227,7 +330,7 @@ class BTLEBlockSender {
         // data will be a dataview so decode it to text
         const decoder = new TextDecoder();
         const text = decoder.decode(data);
-        //console.log("bs from server", data, text);
+        console.log("bs from server", data, text);
         this._mostRecentServerReply = text;
     }
 
