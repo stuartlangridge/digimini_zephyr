@@ -44,32 +44,20 @@ class BTLECachingInterface {
         });
     }
     async getImagesMeta() {
-        const dmcmd = `dmcmd:get_images_meta`;
-        console.log(`Sending dmcmd "${dmcmd}"`);
-        const bytes = new TextEncoder().encode(dmcmd);
-        try {
-            await this._btle.bt.chars.us2server_cmd.writeValue(bytes);
-            console.log(`Sent dmcmd (${bytes.length} bytes)`);
-        } catch(err) {
-            console.error(`Send error for ${dmcmd}`, err);
-        }
-        /*
-        // return a list of image names
-        await new Promise(r => setTimeout(r, 1500));
-        return [
-            {name: "im1"},
-            {name: "im2"},
-            {name: "im3"},
-        ]
-        */
+        const results = await this.waitFor({
+            btle_manager_event: "btle-server-sends",
+            method: this._btle.send_dmcmd,
+            args: ['get_img_meta']
+        })
+        const decoder = new TextDecoder();
+        const text = decoder.decode(results.value);
+        // response to dmcmd:get_image_meta is filename,filename,filename
+        // the filenames will be uuids, but that's not important
+        const filenames = text.split(",").map(filename => { return {name: filename} });
+        return filenames;
     }
     async getImageData(imageName) {
-        return this.waitFor({
-            btle_manager_event: "btle-connect",
-            method: this._btle.connect, 
-            args: options
-        });
-        throw new Error(`Not implemented (getImageData)`);
+        throw new Error(`Not implemented (getImageData) ${imageName}`);
         /*
         // this should be cached somewhere, but not in here; once it's returned
         await new Promise(r => setTimeout(r, 500));
@@ -149,7 +137,8 @@ class BTLEManager {
                         this.uuids.us2server_data),
                     server2us: await service.getCharacteristic(
                         this.uuids.server2us)
-                }
+                },
+                manager: this
             }
             this._status("Listening for server updates...");
             await this.bt.chars.server2us.startNotifications();
@@ -176,9 +165,8 @@ class BTLEManager {
     async onServerSends(event) {
         if (this.bt && this.blockSender) {
             this.blockSender.onServerSends(event.target.value);
-        } else {
-            console.log("Unexpected server send", event.target.value);
         }
+        this._fire("btle-server-sends", {value: event.target.value})
     }
     async disconnect() {
         if (this._isDisconnecting) return;
@@ -222,6 +210,18 @@ class BTLEManager {
             bytes_transferred: data.length}
     }
 
+    async send_dmcmd(cmd) {
+        const dmcmd = `dmcmd:${cmd}`;
+        console.log(`Sending dmcmd "${dmcmd}"`);
+        const bytes = new TextEncoder().encode(dmcmd);
+        try {
+            await this.bt.chars.us2server_cmd.writeValue(bytes);
+            console.log(`Sent dmcmd (${bytes.length} bytes)`);
+        } catch(err) {
+            console.error(`Send error for ${dmcmd}`, err);
+        }
+    }
+
     async _sendSuccess(elapsed_ms) {
         console.log("blocksender", "success");
         this.blockSender = null;
@@ -238,6 +238,8 @@ class BTLEManager {
     }
 }
 
+
+/* The BlockSender has been optimised rather, so don't fiddle with it */
 class BTLEBlockSender {
     constructor(options) {
         this.bt = options.bt;
@@ -266,7 +268,7 @@ class BTLEBlockSender {
     async start() {
         const startTime = new Date().getTime();
         console.log("start sending", this.blocks.length, "blocks to", this.bt);
-        await this.send_dmcmd(`send_data:${this.blocks.length}`);
+        await this.bt.manager.send_dmcmd(`send_data:${this.blocks.length}`);
         await this.waitForServerReply('dmres:goahead');
         console.log("received server goahead");
 
@@ -303,7 +305,7 @@ class BTLEBlockSender {
 
             sentBlocks += thisBurst;
             const previousProgress = lastKnownDeviceBlocks;
-            //await this.send_dmcmd("request_cs");
+            //await this.bt.manager.send_dmcmd("request_cs");
             try {
                 lastKnownDeviceBlocks = await this.waitForAnyChecksumProgress(
                     previousProgress,
@@ -323,7 +325,7 @@ class BTLEBlockSender {
             this.handlers.progress(sentBlocks / this.blocks.length, Date.now() - startTime);
         }
 
-        await this.send_dmcmd(`end_data`);
+        await this.bt.manager.send_dmcmd(`end_data`);
         this.handlers.success();
     }
     async onServerSends(data) {
@@ -411,15 +413,4 @@ class BTLEBlockSender {
             }
         }
     }
-    async send_dmcmd(cmd) {
-        const dmcmd = `dmcmd:${cmd}`;
-        console.log(`Sending dmcmd "${dmcmd}"`);
-        const bytes = new TextEncoder().encode(dmcmd);
-        try {
-            await this.bt.chars.us2server_cmd.writeValue(bytes);
-            console.log(`Sent dmcmd (${bytes.length} bytes)`);
-        } catch(err) {
-            console.error(`Send error for ${dmcmd}`, err);
-        }
-    }    
 }

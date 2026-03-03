@@ -8,6 +8,8 @@ from http.server import HTTPStatus
 from functools import partial
 import urllib
 import io
+import email
+import datetime
 from collections import namedtuple
 FakeStat = namedtuple("FakeStat", "st_mtime a b c d e length")
 
