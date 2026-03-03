@@ -36,6 +36,8 @@ us2client_characteristic = aioble.Characteristic(
 )
 aioble.register_services(service)
 aioble.core.ble.gatts_set_buffer(client2us_data_characteristic._value_handle, 512)
+aioble.core.ble.gatts_set_buffer(client2us_cmd_characteristic._value_handle, 512)
+aioble.core.ble.gatts_set_buffer(us2client_characteristic._value_handle, 512)
 
 class ChecksumAlreadyStartedError(Exception): pass
 class Checksum:
@@ -182,7 +184,7 @@ async def incoming_cmd_handler(channel, data):
             cs_str = f"dmcs:{checksum.get()}"
             broker.publish("request_send_us2client", cs_str)
             print("On-demand CS sent")
-    elif parts[1] == "get_images_meta":
+    elif parts[1] == "get_img_meta":
         broker.publish("request_send_us2client", "a,b,c")
 
 # Add global counters for debugging
