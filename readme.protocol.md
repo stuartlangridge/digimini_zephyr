@@ -22,7 +22,7 @@ To initiate a communication, the client sends a **command string** to the `clien
 
 ## `dmcmd:send_data:(blocks)`
 
-This indicates that the app wants to send data in 20-character blocks. The number of such blocks is included. Once this send is acknowledged, the app should send 20-character blocks with acknowledgement one after the other to the device, checking the checksum after each block.
+This indicates that the app wants to send data in 240-character blocks. The number of such blocks is included. Once this send is acknowledged, the app should send 240-character blocks with acknowledgement one after the other to the device, checking the checksum after each block.
 
 Only one data transmission can be done at a time. If a `dmcmd:send_data` arrives while there is already a transmission open (perhaps because the message to close it never arrived) then it will be rejected (how?)
 
