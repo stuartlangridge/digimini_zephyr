@@ -12,6 +12,7 @@ import bluetooth
 import random
 import struct
 import time
+import os
 
 from primitives.broker import broker
 
@@ -140,9 +141,11 @@ async def client2us_cmd_listener():
             await asyncio.sleep_ms(500)
 
 checksum = Checksum()
+CURRENT_INCOMING_FILENAME = None
+CURRENT_INCOMING_BLOCKS = []
 
 async def incoming_cmd_handler(channel, data):
-    global checksum
+    global checksum, CURRENT_INCOMING_FILENAME, CURRENT_INCOMING_BLOCKS
     try:
         cmd = data.decode("utf-8")
     except Exception as e:
@@ -167,8 +170,11 @@ async def incoming_cmd_handler(channel, data):
         except ChecksumAlreadyStartedError:
             print("Tried to initiate a send_data when there's already one")
             return
-        # respond with dmres:goahead
-        broker.publish("request_send_us2client", "dmres:goahead")
+        # respond with dmres:goahead:filename
+        CURRENT_INCOMING_FILENAME = uuid4()
+        CURRENT_INCOMING_BLOCKS = []
+        broker.publish("request_send_us2client",
+            f"dmres:goahead:{CURRENT_INCOMING_FILENAME}")
     elif parts[1] == "abort_data":
         if not checksum.started():
             print("Error: tried to abort_data when there is no transmission")
@@ -180,25 +186,38 @@ async def incoming_cmd_handler(channel, data):
         if not checksum.started():
             print("Error: tried to end_data when there is no transmission")
             return
-        filename = f"/flash/images/{uuid4()}"
+        filename = f"/flash/images/{CURRENT_INCOMING_FILENAME}"
         print(f"data ends (do whatever with file now, {filename})")
         # reset the checksum to unstarted
         checksum.reset()
+        with open(f"/flash/images/{CURRENT_INCOMING_FILENAME}", "wb") as fp:
+            for data in CURRENT_INCOMING_BLOCKS:
+                fp.write(data)
+        CURRENT_INCOMING_BLOCKS = []
+        CURRENT_INCOMING_FILENAME = None
     elif parts[1] == "request_cs":
         if checksum.started():
             cs_str = f"dmcs:{checksum.get()}"
             broker.publish("request_send_us2client", cs_str)
             print("On-demand CS sent")
     elif parts[1] == "get_image_meta":
-        broker.publish("request_send_us2client", "dmres:image_meta:a,b")
+        images = ",".join(os.listdir("/flash/images"))
+        broker.publish("request_send_us2client", f"dmres:image_meta:{images}")
     elif parts[1] == "get_image":
         filename = parts[2]
-        imagedata = [f"{idx}{filename*5}" for idx in range(1,10)]
-        total = sum([len(d) for d in imagedata])
+        path = f"/flash/images/{filename}"
+        BLOCK_SIZE = 240
+        filesize = os.stat(path)[6]
+        broker.publish("request_send_us2client", f"dmres:image_data:{filesize}")
+        with open(path, "rb") as fp:
+            idx = 0
+            while True:
+                block = fp.read(BLOCK_SIZE)
+                if len(block) == 0: break
+                broker.publish("request_send_us2client", block)
+                print("Sending block", idx)
+                idx += 1
         cs = "xxxxx"
-        broker.publish("request_send_us2client", f"dmres:image_data:{total}")
-        for block in imagedata:
-            broker.publish("request_send_us2client", block)
         broker.publish("request_send_us2client", f"dmres:complete_image_data:{cs}")
 
 # Add global counters for debugging
@@ -210,10 +229,12 @@ async def incoming_data_handler(channel, data):
         return
     checksum.add(data)
     received_blocks += 1
-    # print(f"Recv block {data}")
+    print(f"Recv block", received_blocks)
+    CURRENT_INCOMING_BLOCKS.append(data)
     # Still notify on modulo or periodic task
-    if received_blocks % 50 == 0:
+    if received_blocks % 10 == 0:
         cs_str = f"dmcs:{checksum.get()}"
+        print("sending checksum", cs_str)
         broker.publish("request_send_us2client", cs_str)
 
 # listens to request_send_us2client queue and sends things on it
@@ -242,12 +263,11 @@ async def main():
     t_srv = asyncio.create_task(connection_task())
     t_c2u_cmd = asyncio.create_task(client2us_cmd_listener())
     t_c2u_data = asyncio.create_task(client2us_data_listener())
-    t_cssend = asyncio.create_task(periodic_checksum_sender())
 
     broker.subscribe("incoming_data_handler", incoming_data_handler)
     broker.subscribe("incoming_cmd_handler", incoming_cmd_handler)
     broker.subscribe("request_send_us2client", outgoing_message_sender)
-    await asyncio.gather(t_c2u_cmd, t_c2u_data, t_srv, t_cssend)
+    await asyncio.gather(t_c2u_cmd, t_c2u_data, t_srv)
 
 print("App startup")
 asyncio.run(main())

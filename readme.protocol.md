@@ -24,13 +24,15 @@ To initiate a communication, the client sends a **command string** to the `clien
 
 This indicates that the app wants to send data in 240-character blocks. The number of such blocks is included. Once this send is acknowledged, the app should send 240-character blocks with acknowledgement one after the other to the device, checking the checksum after each block.
 
+The device allocates a filename at the start of the transmission. This filename is a uuid4() because it must be globally unique; this means that the client can cache it forever under that filename.
+
 Only one data transmission can be done at a time. If a `dmcmd:send_data` arrives while there is already a transmission open (perhaps because the message to close it never arrived) then it will be rejected (how?)
 
 Both sides start calculating a checksum. The checksum is a string of three comma-separated numbers: the first is the sum of each byte value of the transmitted data so far, mod 256; the second is the total length of (sent/received) data so far in bytes, mod 256; the third is the number of blocks received. So the checksum is `dmcs:(sum),(len),(blockcount)`
 
 After each block is transmitted, the app should wait for the updated checksum to appear on the device2client characteristic and check its value. If the value is correct, proceed to the next block. If the value is incorrect, abort the transmission. (There is no provision for retransmitting blocks, yet.)
 
-The device should respond with a `dmres:goahead` message on device2client.
+The device should respond with a `dmres:goahead:(filename)` message on device2client.
 
 ## `dmcmd:abort_data`
 

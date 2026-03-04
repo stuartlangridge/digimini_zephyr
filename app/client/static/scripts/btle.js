@@ -57,17 +57,18 @@ class BTLECachingInterface {
             console.log("WARNING, unexpected response to get_image_meta", text);
             return [];
         }
-        const filenames = text.split(":")[2].split(",").map(filename => { return {name: filename} });
-        return filenames;
+        const filenames = text.split(":")[2].split(",").filter(a => a.length > 0);
+        const metas = filenames.map(filename => { return {name: filename} });
+        return metas;
     }
     async getImageData(imageName) {
+        // check cache for this, eventually
         const result = await this._btle.receive_from_command(`get_image:${imageName}`);
         console.log("got back imagedata", result);
-        /*
-        // this should be cached somewhere, but not in here; once it's returned
-        await new Promise(r => setTimeout(r, 500));
-        return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAACCAIAAAAW4yFwAAAACXBIWXMAAC4jAAAuIwF4pT92AAAAEElEQVQI12P4uI2fiYGBAQALNgG5gDAvrQAAAABJRU5ErkJggg==";
-        */
+        // convert it from 565 to png
+        const as_png = await convert565ToPng(result.received);
+        // cache this, eventually
+        return as_png;
     }
     async deleteImage(imageName) {
         throw new Error(`Not implemented (deleteImage)`);
@@ -83,14 +84,18 @@ class BTLECachingInterface {
         });
     }
     async send(data_565, progress_cb) {
-        throw new Error(`Not implemented (send)`);
-        /*
-        for (let i=0; i<100; i++) {
-            await new Promise(r => setTimeout(r, 30));
-            progress_cb(i / 100);
-        }
-        return true
-        */
+        console.log("send", data_565);
+        document.addEventListener("btle-progress-send", progress_cb)
+        const promiseFinished = await this.waitFor({
+            btle_manager_event: "btle-send-complete",
+            method: this._btle.send,
+            args: [data_565.buffer],
+            finalise: data => {
+                console.log("We got this back frmo a successful send", {data})
+            }
+        });
+        document.removeEventListener("btle-progress-send", progress_cb)
+        return promiseFinished;
     }
 }
 
@@ -250,13 +255,15 @@ class BTLEManager {
         }
     }
 
-    async _sendSuccess(elapsed_ms) {
+    async _sendSuccess(elapsed_ms, filename) {
         console.log("blocksender", "success");
+        this._fire("btle-send-complete", {success: true, filename});
         this.blockSender = null;
         this._status("Sent successfully");
     }
     async _sendFailure() {
         console.log("blocksender", "failure");
+        this._fire("btle-send-complete", {success: false});
         this.blockSender = null;
         this._status("Send failed");
     }
@@ -348,12 +355,11 @@ class BTLEBlockReceiver {
     }
 }
 
-
-/* The BlockSender has been optimised rather, so don't fiddle with it */
 class BTLEBlockSender {
     constructor(options) {
         this.bt = options.bt;
         this.handlers = options.handlers;
+        this.filename = null;
 
         this.blocks = [];
         const BLOCK_SIZE = 240; // must be smaller than MTU
@@ -373,71 +379,73 @@ class BTLEBlockSender {
             const chunk = data.subarray(i, i + BLOCK_SIZE);
             this.blocks.push(chunk);
         }
+        console.log(`About to send ${this.blocks.length} blocks`);
     }
 
     async start() {
         const startTime = new Date().getTime();
         console.log("start sending", this.blocks.length, "blocks to", this.bt);
         await this.bt.manager.send_dmcmd(`send_data:${this.blocks.length}`);
-        await this.waitForServerReply('dmres:goahead');
-        console.log("received server goahead");
+        await this.waitForServerReply('dmres:goahead:');
+        this.filename = this._mostRecentServerReply.split(":")[2];
+        console.log("received server goahead for filename", this.filename);
 
-        // note: these values have been arrived at by experimentation
-        // to balance speed of throughput with not overrunning the buffer
-        // sizes on the device.
-        // they go in concert with buffer size configs in the board .conf
-        // file for the device in the zephyr build
-        const INITIAL_BURST_SIZE = 20;
-        const MAX_BURST_SIZE = 120;
-        const BASE_BURST_SIZE = 4;
-        const INTER_WRITE_DELAY_MS = 5;
-        const BURST_TIMEOUT_MS = 15000;
-
-        let sentBlocks = 0;
-        let lastKnownDeviceBlocks = 0;     // Track last reported progress
-        let localSum = 0;
-        let localLen = 0;
-
-        while (sentBlocks < this.blocks.length) {
-            let burstSize = Math.min(BASE_BURST_SIZE + Math.floor(sentBlocks / 30), 25);
-            const thisBurst = Math.min(burstSize, this.blocks.length - sentBlocks);
-
-            console.log(`Burst attempt: blocks ${sentBlocks + 1} → ${sentBlocks + thisBurst} (size ${thisBurst})`);
-
-            for (let i = 0; i < thisBurst; i++) {
-                const block = this.blocks[sentBlocks + i];
-                for (let byte of block) localSum = (localSum + byte) % 256;
-                localLen = (localLen + block.length) % 256;
-
-                await this.bt.chars.us2server_data.writeValueWithoutResponse(block);
-                await new Promise(r => setTimeout(r, INTER_WRITE_DELAY_MS));
-            }
-
-            sentBlocks += thisBurst;
-            const previousProgress = lastKnownDeviceBlocks;
-            //await this.bt.manager.send_dmcmd("request_cs");
-            try {
-                lastKnownDeviceBlocks = await this.waitForAnyChecksumProgress(
-                    previousProgress,
-                    sentBlocks,
-                    BURST_TIMEOUT_MS);
-                console.log(`Progress OK: device reports >= ${lastKnownDeviceBlocks} blocks`);
-            } catch (e) {
-                console.error("Burst failed:", e);
-                if (lastKnownDeviceBlocks > previousProgress) {  // some progress
-                    console.log(`Partial progress (+${lastKnownDeviceBlocks - previousProgress}); continuing`);
-                } else {
-                    console.error("No progress at all in this burst → likely full stall");
-                    throw e;  // full stall → abort
+        const blockSendTimes = [];
+        let idx = 0;
+        for (const block of this.blocks) {
+            console.log(`Sending block ${idx}/${this.blocks.length}`);
+            const startBlockTime = new Date().getTime();
+            await this.bt.chars.us2server_data.writeValue(block);
+            blockSendTimes.push(new Date().getTime() - startBlockTime);
+            console.log(`Sent block ${idx}/${this.blocks.length}`);
+            idx += 1;
+            if (idx % 10 == 0) { // we need to look for checksums with the same interval that the digimini sends them
+                while (true) {
+                    console.log("Waiting for checksum, right now mrsr is", this._mostRecentServerReply);
+                    let sum = -1, len = -1, count = -1;
+                    // wait for checksum
+                    let got_matching_checksum = false;
+                    if (this._mostRecentServerReply) {
+                        if (this._mostRecentServerReply.startsWith("dmcs:")) {
+                            const parts1 = this._mostRecentServerReply.split(":");
+                            if (parts1.length == 2) {
+                                const parts = parts1[1].split(",");
+                                sum = parseInt(parts[0]); len = parseInt(parts[1]); count = parseInt(parts[2]);
+                                if (count == idx) {
+                                    got_matching_checksum = true;
+                                } else {
+                                    console.log(`No checksum match: our count ${idx} != digimini count ${count}`);
+                                }
+                            } else {
+                                console.log(`No checksum match: mrsr is bad ${this._mostRecentServerReply}`);
+                            }
+                        } else {
+                            console.log(`No checksum match at our count ${idx}: most recent is ${this._mostRecentServerReply}`);
+                        }
+                    }
+                    if (got_matching_checksum) {
+                        console.log("Got matching checksum");
+                        break;
+                    }
+                    await new Promise(r => setTimeout(r, 1000));
                 }
             }
-
-            this.handlers.progress(sentBlocks / this.blocks.length, Date.now() - startTime);
         }
-
+        let sumBlockTimes = 0;
+        for (const bst of blockSendTimes) sumBlockTimes += bst;
+        console.log(`Average block send time: ${Math.round(sumBlockTimes/blockSendTimes.length)}ms`);
         await this.bt.manager.send_dmcmd(`end_data`);
-        this.handlers.success();
+        console.log("all sent");
+        this.handlers.success(Date.now() - startTime, this.filename);
     }
+
+    async waitForServerReply(expected) {
+        while (true) {
+            if (this._mostRecentServerReply && this._mostRecentServerReply.startsWith(expected)) return true;
+            await new Promise(r => setTimeout(r, 50));
+        }
+    }
+
     async onServerSends(data) {
         // data will be a dataview so decode it to text
         const decoder = new TextDecoder();
@@ -446,81 +454,4 @@ class BTLEBlockSender {
         this._mostRecentServerReply = text;
     }
 
-    async waitForAnyChecksumProgress(previousBlocks, currentSentBlocks, timeoutMs) {
-        const start = Date.now();
-        let highestSeen = previousBlocks;
-
-        while (Date.now() - start < timeoutMs) {
-            if (this._mostRecentServerReply?.startsWith('dmcs:')) {
-                const parts = this._mostRecentServerReply.split(':')[1].split(',');
-                const sum = parseInt(parts[0]);
-                const len = parseInt(parts[1]);
-                const blocks = parseInt(parts[2]);
-
-                if (blocks > highestSeen) {
-                    highestSeen = blocks;
-                    console.log(`Device advanced to ${blocks} blocks (local sent: ${currentSentBlocks})`);
-                }
-
-                if (blocks >= currentSentBlocks - 100) {
-                    return highestSeen;
-                }
-            }
-            await new Promise(r => setTimeout(r, 30));
-        }
-
-        console.warn(`Timeout. Last device progress: ${highestSeen}, expected ~${currentSentBlocks}`);
-        throw new Error(`Timeout waiting for progress (last seen ${highestSeen}, need ~${currentSentBlocks})`);
-    }
-
-    async waitForChecksumProgress(minBlocks, timeoutMs) {
-        const start = Date.now();
-        let lastSeenBlocks = 0;
-        while (Date.now() - start < timeoutMs) {
-            if (this._mostRecentServerReply?.startsWith('dmcs:')) {
-                const [, sum, len, blocksStr] = this._mostRecentServerReply.split(/[:,]/);
-                const blocks = parseInt(blocksStr);
-                if (blocks >= minBlocks) {
-                    console.log(`Good progress: device at ${blocks} blocks`);
-                    return;
-                }
-                if (blocks > lastSeenBlocks) lastSeenBlocks = blocks;  // track advancement
-            }
-            await new Promise(r => setTimeout(r, 40));  // faster polling
-        }
-        throw new Error(`Timeout waiting for checksum progress >= ${minBlocks}`);
-    }
-
-    async waitForServerReply(expected, timeout) {
-        //console.log("Waiting for server reply", expected);
-        const actual_timeout = timeout || 1000;
-        const catchup_timeout = 10000;
-        const startTime = new Date().getTime();
-        while (true) {
-            if (this._mostRecentServerReply == expected) {
-                //console.log("got expected reply", expected);
-                return;
-            }
-            //console.log(`Check server reply, want "${expected}", got "${this._mostRecentServerReply}"`);
-            await new Promise(r => setTimeout(r, 50));
-
-            if (new Date().getTime() - startTime > actual_timeout) {
-
-                // if this is a checksum and we haven't got to ours yet, keep waiting
-                if (expected.startsWith('dmcs:') && this._mostRecentServerReply.startsWith("dmcs:")) {
-                    const block_count_expected = parseInt(expected.split(",")[2]);
-                    const block_count_got = parseInt(this._mostRecentServerReply.split(",")[2]);
-                    if (block_count_got < block_count_expected && 
-                        new Date().getTime() - startTime < catchup_timeout) {
-                        //console.log(`Waiting for ${expected} but we aren't there yet, at ${this._mostRecentServerReply}, extra time`);
-                        continue;
-                    } else if (this._mostRecentServerReply == expected) {
-                        //console.log("got expected reply after extending timeout");
-                        return;
-                    }
-                }
-                throw new Error(`waitForServerReply timeout (${expected})`);
-            }
-        }
-    }
 }

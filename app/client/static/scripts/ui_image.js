@@ -61,3 +61,29 @@ function convertDataURL(dataURL) {
     });
 
 }
+
+function convert565ToPng(data_565) {
+    // we know this is 80x160 so hardcode that
+    return new Promise((resolve, reject) => {
+        console.log("convert to png", data_565);
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+        const width = 80;
+        const height = 160;
+        canvas.width = width;
+        canvas.height = height;
+        for (let i=0; i<data_565.byteLength; i+=2) {
+            const word = (data_565[i+1] << 8) + data_565[i];
+            const r = (word >> 11) & 0x1F
+            const g = (word >> 5) & 0x3F
+            const b = (word) & 0x1F
+            const rgb = `rgb(${r << 3}, ${g << 2}, ${b << 3})`;
+            x = (i/2) % width
+            y = Math.floor((i/2) / width);
+            ctx.fillStyle = rgb;
+            ctx.fillRect(x, y, 1, 1);
+            console.log([x, y, rgb, data_565[i], data_565[i+1], word])
+        }
+        resolve(canvas.toDataURL("image/png"));
+    })
+}

@@ -68,11 +68,13 @@ window.customElements.define(
         }
 
         const imagesMeta = await btleManager.getImagesMeta();
+            console.log("now doing imagesMeta", imagesMeta);
         this.classList.remove("loading"); /* images now showing up */
 
         // create "loading" placeholder images for each of the images
         for (const imageMeta of imagesMeta) {
             const imgLi = this.getDisplayImageInLoadingState(imageMeta.name);
+            console.log("got back imgLi", imgLi)
             this.imageList.append(imgLi);
             imageMeta.li = imgLi;
         }
