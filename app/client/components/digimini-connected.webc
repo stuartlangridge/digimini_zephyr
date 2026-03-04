@@ -138,6 +138,7 @@ window.customElements.define(
                     imgLi.classList.remove("loading");
                     console.log("now send the data")
                     await btleManager.send(image80x160_565.as_565, (progress_frac) => {
+                        console.log("got progress_frac", progress_frac)
                         imgLi.style.setProperty("--pc", progress_frac * 100);
                     });
                     imgLi.classList.remove("uploading");

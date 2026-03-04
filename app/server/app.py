@@ -84,6 +84,7 @@ class Checksum:
 last_sent_cs = None
 
 def uuid4():
+    random.seed(time.ticks_us())
     p = ["%04x" % random.randint(0,65536) for i in range(8)]
     return f"{p[0]}{p[1]}-{p[2]}-{p[3]}-{p[4]}-{p[5]}{p[6]}{p[7]}"
 
@@ -145,7 +146,7 @@ CURRENT_INCOMING_FILENAME = None
 CURRENT_INCOMING_BLOCKS = []
 
 async def incoming_cmd_handler(channel, data):
-    global checksum, CURRENT_INCOMING_FILENAME, CURRENT_INCOMING_BLOCKS
+    global checksum, CURRENT_INCOMING_FILENAME, CURRENT_INCOMING_BLOCKS, received_blocks
     try:
         cmd = data.decode("utf-8")
     except Exception as e:
@@ -173,6 +174,7 @@ async def incoming_cmd_handler(channel, data):
         # respond with dmres:goahead:filename
         CURRENT_INCOMING_FILENAME = uuid4()
         CURRENT_INCOMING_BLOCKS = []
+        received_blocks = 0
         broker.publish("request_send_us2client",
             f"dmres:goahead:{CURRENT_INCOMING_FILENAME}")
     elif parts[1] == "abort_data":
@@ -203,6 +205,11 @@ async def incoming_cmd_handler(channel, data):
     elif parts[1] == "get_image_meta":
         images = ",".join(os.listdir("/flash/images"))
         broker.publish("request_send_us2client", f"dmres:image_meta:{images}")
+    elif parts[1] == "delete_image":
+        filename = parts[2]
+        path = f"/flash/images/{filename}"
+        os.unlink(path)
+        broker.publish("request_send_us2client", f"dmres:complete_delete_image:{filename}")
     elif parts[1] == "get_image":
         filename = parts[2]
         path = f"/flash/images/{filename}"

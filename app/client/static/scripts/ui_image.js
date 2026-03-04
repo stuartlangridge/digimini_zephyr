@@ -82,7 +82,6 @@ function convert565ToPng(data_565) {
             y = Math.floor((i/2) / width);
             ctx.fillStyle = rgb;
             ctx.fillRect(x, y, 1, 1);
-            console.log([x, y, rgb, data_565[i], data_565[i+1], word])
         }
         resolve(canvas.toDataURL("image/png"));
     })

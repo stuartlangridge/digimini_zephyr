@@ -53,3 +53,6 @@ FIXME: using uuids for filenames, which we have to to ensure global cacheability
 
 Sent on client2devicecmd to prompt getting the data for an image currently stored on the device. The device responds with `dmres:image_data:(bytecount)`, then pure data packets, then `dmres:complete_image_data:(checksum)` on the device2client channel.
 
+## dmcmd:delete_image:(filename)
+
+Sent on client2devicecmd to delete an image. The device responds with `dmres:complete_delete_image:filename` on the device2client channel.

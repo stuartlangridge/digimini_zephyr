@@ -71,11 +71,11 @@ class BTLECachingInterface {
         return as_png;
     }
     async deleteImage(imageName) {
-        throw new Error(`Not implemented (deleteImage)`);
-        /*
-        await new Promise(r => setTimeout(r, 1500));
-        return true
-        */
+        return this.waitFor({
+            btle_manager_event: "btle-server-sends",
+            method: this._btle.send_dmcmd,
+            args: [`delete_image:${imageName}`]
+        })
     }
     async disconnect() {
         return this.waitFor({
@@ -85,7 +85,10 @@ class BTLECachingInterface {
     }
     async send(data_565, progress_cb) {
         console.log("send", data_565);
-        document.addEventListener("btle-progress-send", progress_cb)
+        function progress_handler(e) {
+            progress_cb(e.detail.progress);
+        }
+        document.addEventListener("btle-progress-send", progress_handler)
         const promiseFinished = await this.waitFor({
             btle_manager_event: "btle-send-complete",
             method: this._btle.send,
@@ -94,7 +97,7 @@ class BTLECachingInterface {
                 console.log("We got this back frmo a successful send", {data})
             }
         });
-        document.removeEventListener("btle-progress-send", progress_cb)
+        document.removeEventListener("btle-progress-send", progress_handler)
         return promiseFinished;
     }
 }
@@ -398,6 +401,7 @@ class BTLEBlockSender {
             await this.bt.chars.us2server_data.writeValue(block);
             blockSendTimes.push(new Date().getTime() - startBlockTime);
             console.log(`Sent block ${idx}/${this.blocks.length}`);
+            this.handlers.progress(idx / this.blocks.length, Date.now() - startTime);
             idx += 1;
             if (idx % 10 == 0) { // we need to look for checksums with the same interval that the digimini sends them
                 while (true) {
