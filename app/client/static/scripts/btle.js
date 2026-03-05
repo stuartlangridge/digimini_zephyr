@@ -182,7 +182,7 @@ class BTLEManager {
         this.disconnect();
     }
     async onServerSends(event) {
-        console.log("on server sends: got something")
+        // console.log("on server sends: got something")
         if (this.bt && this.blockSender) {
             this.blockSender.onServerSends(event.target.value);
         }
