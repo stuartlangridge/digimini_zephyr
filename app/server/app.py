@@ -88,19 +88,6 @@ def uuid4():
     p = ["%04x" % random.randint(0,65536) for i in range(8)]
     return f"{p[0]}{p[1]}-{p[2]}-{p[3]}-{p[4]}-{p[5]}{p[6]}{p[7]}"
 
-async def periodic_checksum_sender():
-    global last_sent_cs
-    while True:
-        await asyncio.sleep_ms(5000)
-        if checksum.started():
-            current = checksum.get()
-            if current != last_sent_cs:
-                cs_str = f"dmcs:{current}"
-                broker.publish("request_send_us2client", cs_str)
-                print("Periodic CS (changed):", cs_str)
-                last_sent_cs = current
-            # else: skip sending duplicate
-
 # listen for transmissions of data from them to us
 # put those data on the incoming_data queue
 # to be processed by the incoming_data_handler
@@ -110,7 +97,7 @@ async def client2us_data_listener():
             res = await client2us_data_characteristic.written()
             if res:
                 connection, data = res
-                #print("Received data:", data, time.ticks_ms())
+                #print("Received data:", len(data), time.ticks_ms())
                 broker.publish("incoming_data_handler", data)
         except asyncio.CancelledError:
             # Catch the CancelledError
@@ -119,7 +106,11 @@ async def client2us_data_listener():
             print("Error in client2us_data_listener:", e)
         finally:
             # Ensure the loop continues to the next iteration
-            await asyncio.sleep_ms(500)
+            # I don't think we need this, it's AI bullshit
+            #print("Before sleep_ms", time.ticks_ms())
+            #await asyncio.sleep_ms(500)
+            #print("After sleep_ms", time.ticks_ms())
+            pass
 
 # listen for transmissions of commands from them to us
 # put those commands on the incoming_cmd queue
@@ -158,6 +149,7 @@ async def incoming_cmd_handler(channel, data):
         return
 
     parts = cmd.split(":")
+    print("Incoming cmd", parts)
 
     if parts[1] == "send_data":
         try:
@@ -234,21 +226,23 @@ async def incoming_data_handler(channel, data):
     global checksum, received_blocks
     if not checksum.started():
         return
+    # print(f"Before checksum", received_blocks, time.ticks_ms())
     checksum.add(data)
     received_blocks += 1
-    print(f"Recv block", received_blocks)
+    print(f"Recv block", received_blocks, time.ticks_ms())
     CURRENT_INCOMING_BLOCKS.append(data)
-    # Still notify on modulo or periodic task
-    if received_blocks % 10 == 0:
+    CHECKSUM_EVERY_N_PACKETS = 20 # this must agree with app!
+    if received_blocks % CHECKSUM_EVERY_N_PACKETS == 0:
         cs_str = f"dmcs:{checksum.get()}"
         print("sending checksum", cs_str)
         broker.publish("request_send_us2client", cs_str)
+    # print(f"End incoming", received_blocks, time.ticks_ms())
 
 # listens to request_send_us2client queue and sends things on it
 async def outgoing_message_sender(channel, data):
-    #print("send to client", data, time.ticks_ms())
+    # print("send to client", len(data), time.ticks_ms())
     us2client_characteristic.write(data, send_update=True)
-    #print("send to client after send", data, time.ticks_ms())
+    # print("send to client after send", len(data), time.ticks_ms())
 
 # Serially wait for connections. Don't advertise while a central is
 # connected.

@@ -122,6 +122,7 @@ class BTLEManager {
             console.log("Can't connect while disconnecting");
             return;
         }
+        console.log("conn: begin")
         try {
             this._status("Requesting device...");
             // we need acceptAllDevices here, even though it's really
@@ -132,10 +133,12 @@ class BTLEManager {
                 acceptAllDevices: true, 
                 optionalServices: [this.uuids.service]
             });
+            console.log("conn: add disco listener")
             this._unexpectedDisconnectReference = this._unexpectedDisconnect.bind(this);
             device.addEventListener('gattserverdisconnected',
                 this._unexpectedDisconnectReference);
             this._status("Connecting...");
+            console.log("conn: actually connecting")
             const server = await device.gatt.connect();
             this._status("Getting digimini service...");
             const service = await server.getPrimaryService(this.uuids.service);
@@ -153,13 +156,16 @@ class BTLEManager {
                 },
                 manager: this
             }
+            console.log("conn: start notifications")
             this._status("Listening for server updates...");
             await this.bt.chars.server2us.startNotifications();
             this.onServerSendsRef = this.onServerSends.bind(this);
+            console.log("conn: add charvaluechanged")
             this.bt.chars.server2us.addEventListener(
                 "characteristicvaluechanged", this.onServerSendsRef);
             // Delay to let subscription stabilize
             await new Promise(r => setTimeout(r, 800));
+            console.log("conn: connected")
             this._status("Connected");
             this.connected = true;
             this._fire("btle-connect", device);
@@ -176,6 +182,7 @@ class BTLEManager {
         this.disconnect();
     }
     async onServerSends(event) {
+        console.log("on server sends: got something")
         if (this.bt && this.blockSender) {
             this.blockSender.onServerSends(event.target.value);
         }
@@ -191,8 +198,11 @@ class BTLEManager {
             this.bt?.chars?.server2us.removeEventListener(
                 "characteristicvaluechanged", this.onServerSendsRef);
         }
+        // need to stop notifications before disconnecting, otherwise they
+        // don't work if you reconnect after disconnecting!
+        await this.bt.chars.server2us.stopNotifications();
         if (this.bt?.server) {
-            try { this.bt.server.disconnect(); } catch (e) {}
+            try { this.bt.server.disconnect(); } catch (e) { console.log("disco err", e); }
         }
         if (this.bt?.device && typeof this.bt?.device?.forget === "function") {
             this.bt.device.removeEventListener('gattserverdisconnected',
@@ -395,6 +405,7 @@ class BTLEBlockSender {
 
         const blockSendTimes = [];
         let idx = 0;
+        const CHECKSUM_EVERY_N_PACKETS = 20; // this must agree with digimini!
         for (const block of this.blocks) {
             console.log(`Sending block ${idx}/${this.blocks.length}`);
             const startBlockTime = new Date().getTime();
@@ -403,7 +414,7 @@ class BTLEBlockSender {
             console.log(`Sent block ${idx}/${this.blocks.length}`);
             this.handlers.progress(idx / this.blocks.length, Date.now() - startTime);
             idx += 1;
-            if (idx % 10 == 0) { // we need to look for checksums with the same interval that the digimini sends them
+            if (idx % CHECKSUM_EVERY_N_PACKETS == 0) { // we need to look for checksums with the same interval that the digimini sends them
                 while (true) {
                     console.log("Waiting for checksum, right now mrsr is", this._mostRecentServerReply);
                     let sum = -1, len = -1, count = -1;
