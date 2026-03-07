@@ -38,5 +38,20 @@ DC              | 0.15
 CS              | 0.13
 BLK             | 3.3v
 
+We can also tie BLK (backlight) to pin 29 which is defined as pwm0 in nrf52840dongle.overlay in micropython.
+
 The pin headers need to be soldered to the dongle otherwise it doesn't work.
 Turns out Reddit was right, cursedly.
+
+Pins for rotary encoder are in rotary.py:
+
+a = Pin(("gpio0", 2),  Pin.IN, Pin.PULL_UP)
+b = Pin(("gpio0", 22), Pin.IN, Pin.PULL_UP)
+sw = Pin(("gpio0", 24), Pin.IN, Pin.PULL_UP)
+
+sw is a button
+a and b go to the leftmost and rightmost pins on the rotary encoder.
+middle pin on the rotary encoder goes to ground.
+
+
+
