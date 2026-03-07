@@ -68,3 +68,6 @@ PWM for backlight on screens
 # at 50% brightness the power consumption of both screens together is ~20mA
 pwm = PWM(("pwm0", 0), freq=1000, duty_ns=1_000_000, invert=True)
 
+NOTE:
+
+add pads to our board to let us do bootloader flashing
