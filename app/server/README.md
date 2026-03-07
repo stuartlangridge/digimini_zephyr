@@ -55,3 +55,16 @@ middle pin on the rotary encoder goes to ground.
 
 
 
+PWM for backlight on screens
+
+# freq 10000 means it turns on and off 1000Hz, or 1,000,000ns
+# so if you want it to be max brightness, set duty_ns=1,000,000
+# so the backlight is on all the time
+# if you want it to be min brightness set duty_ns to be 0
+# 50% brightness is duty_ns 500,000
+# power usage scales with brightness:
+# at 0 brightness the power consumption of just the screen is ~4mA
+# at 100% brightness the power consumption of both screens together is ~40mA
+# at 50% brightness the power consumption of both screens together is ~20mA
+pwm = PWM(("pwm0", 0), freq=1000, duty_ns=1_000_000, invert=True)
+
