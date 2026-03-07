@@ -2,7 +2,11 @@ function rgbToRgb565(r, g, b) {
     const red = r >> 3;
     const green = g >> 2;
     const blue = b >> 3;
-    return (red << 11) | (green << 5) | blue;
+    const val16bit = (red << 11) | (green << 5) | blue;
+    // we need to swap the bytes because screen is bgr not rgb
+    const b2 = val16bit % 256;
+    const b1 = val16bit >> 8;
+    return b2* 256 + b1;
 }
 
 function convertDataURL(dataURL) {
@@ -73,7 +77,7 @@ function convert565ToPng(data_565) {
         canvas.width = width;
         canvas.height = height;
         for (let i=0; i<data_565.byteLength; i+=2) {
-            const word = (data_565[i+1] << 8) + data_565[i];
+            const word = (data_565[i] << 8) + data_565[i+1];
             const r = (word >> 11) & 0x1F
             const g = (word >> 5) & 0x3F
             const b = (word) & 0x1F

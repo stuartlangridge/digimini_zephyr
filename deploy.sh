@@ -75,4 +75,4 @@ fi
 echo For now we simply run our app without actually storing it on the device
 echo Eventually this will package it up, but this is ok for iterating
 
-mpremote run "$D"/app/server/app.py
+mpremote run "$D"/app/server/screen.py
