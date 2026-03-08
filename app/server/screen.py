@@ -46,4 +46,4 @@ with open("/flash/images/af53b11b-0ce2-90b3-1a5b-5dfa5e6fcf6c", mode="rb") as fp
 # at 0 brightness the power consumption of just the screen is ~4mA
 # at 100% brightness the power consumption of both screens together is ~40mA
 # at 50% brightness the power consumption of both screens together is ~20mA
-pwm = PWM(("pwm0", 0), freq=1000, duty_ns=1_000_000, invert=True)
+pwm = PWM(("pwm0", 0), freq=1000, duty_ns=1_000_000)
