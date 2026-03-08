@@ -72,7 +72,17 @@ fi
 source "$D"/mpvenv/bin/activate
 
 echo Checking for nrfutil which is needed for build and flashing
-which nrfutil > /dev/null || pip3 install nrfutil
+which nrfutil > /dev/null
+if [ $? == 0 ]; then
+    echo "...you have nrfutil. Great!"
+else
+    recho "You don't have nrfutil, which is needed for building and flashing. You can get it from Nordic's website, but it's a bit of a pain to install, so I'm not automating it. See the instructions in the script for how to get it."
+    exit 1
+fi
+# Don't install from pip!
+# Download from: https://docs.nordicsemi.com/bundle/nrfutil/page/guides/installing.html
+# mv nrfutil ~/.local/bin
+
 
 echo "We need the Zephyr builder, west (West! Jim West! desperado!) to do stuff"
 pip install -q west
