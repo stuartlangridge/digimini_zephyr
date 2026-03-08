@@ -1,6 +1,7 @@
 from machine import SPI, Pin, PWM
 import ST7735
 import time
+import deflate
 
 spi = SPI("spi@40004000", baudrate=8_000_000)
 
@@ -25,16 +26,14 @@ display.rgb(False)
 
 display.fill(ST7735.TFT.BLACK)
 display.fillrect((20, 20), (88, 40), ST7735.TFT.RED)
-#
-with open("/flash/images/af53b11b-0ce2-90b3-1a5b-5dfa5e6fcf6c", mode="rb") as fp:
-    rgb565 = fp.read(12800)
-    display._setwindowloc((0,0), (79,79))
-    display._writedata(rgb565)
 
-    rgb565 = fp.read(12800)
-
-    display._setwindowloc((0,80), (79,159))
-    display._writedata(rgb565)
+# note that this data is gzip compressed! needs to be decompressed
+with open("/flash/images/cded6c00-e759-5931-bb11-93e2123974ba", mode="rb") as fp:
+    with deflate.DeflateIO(fp, deflate.ZLIB, 12) as d:
+        display._setwindowloc((0, 0), (79, 79))
+        display._writedata(d.read(12800))
+        display._setwindowloc((0, 80), (79, 159))
+        display._writedata(d.read(12800))
 
 
 # freq 10000 means it turns on and off 1000Hz, or 1,000,000ns
