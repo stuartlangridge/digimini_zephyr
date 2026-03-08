@@ -176,9 +176,9 @@ class BTLEManager {
             throw err;
         }
     }
-    async _unexpectedDisconnect() {
+    async _unexpectedDisconnect(e) {
         if (this._isDisconnecting) return;
-        console.log("Device disconnected unexpectedly", this);
+        console.log("Device disconnected unexpectedly", e);
         this.disconnect();
     }
     async onServerSends(event) {
@@ -200,7 +200,9 @@ class BTLEManager {
         }
         // need to stop notifications before disconnecting, otherwise they
         // don't work if you reconnect after disconnecting!
-        await this.bt.chars.server2us.stopNotifications();
+        if (this.bt?.chars?.server2us) {
+            await this.bt.chars.server2us.stopNotifications();
+        }
         if (this.bt?.server) {
             try { this.bt.server.disconnect(); } catch (e) { console.log("disco err", e); }
         }
