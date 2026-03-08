@@ -194,28 +194,31 @@ class BTLEManager {
     async disconnect() {
         if (this._isDisconnecting) return;
         this._isDisconnecting = true;
-        if (this.bt?.chars?.server2us) {
-            this.bt?.chars?.server2us.removeEventListener(
-                "characteristicvaluechanged", this.onServerSendsRef);
+        try {
+            if (this.bt?.chars?.server2us) {
+                this.bt.chars.server2us.removeEventListener(
+                    "characteristicvaluechanged", this.onServerSendsRef);
+                try {
+                    // need to stop notifications before disconnecting, otherwise they
+                    // don't work if you reconnect after disconnecting!
+                    await this.bt.chars.server2us.stopNotifications();
+                } catch (e) { console.log("stopNotifications err", e); }
+            }
+            if (this.bt?.server) {
+                try { this.bt.server.disconnect(); } catch (e) { console.log("disco err", e); }
+            }
+            if (this.bt?.device && typeof this.bt?.device?.forget === "function") {
+                this.bt.device.removeEventListener('gattserverdisconnected',
+                    this._unexpectedDisconnectReference);
+                this.bt.device.forget().catch(e => console.warn("Forget failed:", e));
+            }
+        } finally {
+            this.bt = null;
+            this._isDisconnecting = false;
+            this.connected = false;
+            this._status("Disconnected");
+            this._fire("btle-disconnect", {});
         }
-        // need to stop notifications before disconnecting, otherwise they
-        // don't work if you reconnect after disconnecting!
-        if (this.bt?.chars?.server2us) {
-            await this.bt.chars.server2us.stopNotifications();
-        }
-        if (this.bt?.server) {
-            try { this.bt.server.disconnect(); } catch (e) { console.log("disco err", e); }
-        }
-        if (this.bt?.device && typeof this.bt?.device?.forget === "function") {
-            this.bt.device.removeEventListener('gattserverdisconnected',
-                this._unexpectedDisconnectReference);
-            this.bt.device.forget().catch(e => console.warn("Forget failed:", e));
-        }
-        this.bt = null;
-        this._status("Disconnected");
-        this._isDisconnecting = false;
-        this.connected = false;
-        this._fire("btle-disconnect", {});
     }
     async send(data) {
         if (!this.connected) {

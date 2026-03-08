@@ -88,6 +88,14 @@ def uuid4():
     p = ["%04x" % random.randint(0,65536) for i in range(8)]
     return f"{p[0]}{p[1]}-{p[2]}-{p[3]}-{p[4]}-{p[5]}{p[6]}{p[7]}"
 
+def get_device_name():
+    mac_bytes = aioble.core.ble.config("mac")[1]
+    mac_hex = ''.join('{:02x}'.format(b) for b in mac_bytes)
+    return f"digimini_{mac_hex[-4:]}"
+
+DEVICE_NAME = get_device_name()
+print("Device name:", DEVICE_NAME)
+
 # listen for transmissions of data from them to us
 # put those data on the incoming_data queue
 # to be processed by the incoming_data_handler
@@ -247,28 +255,46 @@ async def outgoing_message_sender(channel, data):
 # Serially wait for connections. Don't advertise while a central is
 # connected.
 async def connection_task():
+    print("connection_task started")
     while True:
-        async with await aioble.advertise(
-            _ADV_INTERVAL_US,
-            name="digimini",
-            services=[SERVICE_UUID],
-        ) as connection:
-            print("Connection from", connection.device)
-            broker.publish("connection", "connected")
-            await connection.disconnected(timeout_ms=None)
-            print("Disconnected from", connection.device)
-            broker.publish("connection", "disconnected")
-
+        try:
+            print("Starting advertise...")
+            async with await aioble.advertise(
+                _ADV_INTERVAL_US,
+                name=DEVICE_NAME,
+                services=[SERVICE_UUID],
+            ) as connection:
+                # No prints here! USB CDC serial print() blocks when
+                # buffer is full, which stalls BLE host processing
+                # and causes supervision timeouts.
+                broker.publish("connection", "connected")
+                await connection.disconnected(timeout_ms=None)
+                broker.publish("connection", "disconnected")
+        except Exception as e:
+            print("connection_task exception:", e)
+            import sys
+            sys.print_exception(e)
+            await asyncio.sleep_ms(1000)
 
 async def main():
-    t_srv = asyncio.create_task(connection_task())
-    t_c2u_cmd = asyncio.create_task(client2us_cmd_listener())
-    t_c2u_data = asyncio.create_task(client2us_data_listener())
-
+    # Test aioble works at all before starting tasks
+    print("aioble version:", aioble.__version__ if hasattr(aioble, '__version__') else "unknown")
+    print("Starting tasks...")
+    
     broker.subscribe("incoming_data_handler", incoming_data_handler)
     broker.subscribe("incoming_cmd_handler", incoming_cmd_handler)
     broker.subscribe("request_send_us2client", outgoing_message_sender)
-    await asyncio.gather(t_c2u_cmd, t_c2u_data, t_srv)
+
+    # Run tasks individually to catch which one fails
+    try:
+        t_srv = asyncio.create_task(connection_task())
+        t_c2u_cmd = asyncio.create_task(client2us_cmd_listener())
+        t_c2u_data = asyncio.create_task(client2us_data_listener())
+        await asyncio.gather(t_c2u_cmd, t_c2u_data, t_srv, return_exceptions=True)
+    except Exception as e:
+        print("main exception:", e)
+        import sys
+        sys.print_exception(e)
 
 print("App startup")
 asyncio.run(main())
