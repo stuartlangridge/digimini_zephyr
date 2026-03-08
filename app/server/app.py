@@ -16,6 +16,8 @@ import os
 
 from primitives.broker import broker
 
+from mac2colour import mac2colour
+
 # Custom UUIDs for our service
 SERVICE_UUID = bluetooth.UUID("D191D191-F070-51DE-C0DE-B1EA550C1A7E")
 CLIENT2US_CMD_UUID = bluetooth.UUID("D191D191-F070-FEED-1DEA-B1EA550C1A7E")
@@ -91,7 +93,8 @@ def uuid4():
 def get_device_name():
     mac_bytes = aioble.core.ble.config("mac")[1]
     mac_hex = ''.join('{:02x}'.format(b) for b in mac_bytes)
-    return f"digimini_{mac_hex[-4:]}"
+    colour_names, colour_values = mac2colour(mac_hex[-4:])
+    return f"digimini-{"-".join(colour_names)}"
 
 DEVICE_NAME = get_device_name()
 print("Device name:", DEVICE_NAME)

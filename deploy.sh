@@ -71,6 +71,11 @@ if mpremote fs ls /flash/ | grep images/ > /dev/null; then
 else
   mpremote mkdir /flash/images
 fi
+if mpremote fs ls /flash/lib/ | grep mac2colour.py > /dev/null; then
+  echo Already got mac2colour
+else
+  mpremote fs cp app/server/mac2colour.py :/flash/lib/
+fi
 
 echo For now we simply run our app without actually storing it on the device
 echo Eventually this will package it up, but this is ok for iterating
