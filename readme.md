@@ -12,3 +12,6 @@ Our app is in `app`; `/app/server` is the stuff that runs on the dongle
 (a python app); deploy it to the dongle (once it's got micropython on it)
 with `bash deploy.sh`.
 `app/client` is the web app which is the client and can send files and so on.
+
+See also [readme.protocol.md](readme.protocol.md) for the BLE protocol
+and [readme.debugging.md](readme.debugging.md) for BLE debugging notes.
