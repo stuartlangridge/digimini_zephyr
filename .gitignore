@@ -6,3 +6,4 @@ micropython-lib/
 micropython-built.zip
 _build
 node_modules
+app/client/client_venv/
